@@ -73,5 +73,5 @@ theme: next
 ## Docs: https://hexo.io/docs/deployment.html
 deploy:
     type: git
-    repo:  https://git.duapp.com/appidjd9tacnfb9
+    repo:  https://git.duapp.com/appid28kmc9ad8s
     branch: master
