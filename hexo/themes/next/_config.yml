@@ -316,6 +316,15 @@ disqus:
 # Hypercomments
 #hypercomments_id:
 
+#gitment
+gitment:
+  enable: true
+  githubID: baixiangcpp
+  repo: hexo
+  ClientID: ddb4a065ef5dbedb224e
+  ClientSecret: 0ede77323508d56231b1281291538bfd45303b20
+  lazy: false
+
 # changyan
 changyan:
   enable: false
