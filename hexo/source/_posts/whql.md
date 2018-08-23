@@ -25,24 +25,24 @@ whql(Windows Hardware Quality Labs)认证是微软针对第三方的驱动程序
  Windows Hardware Lab Kit (Windows HLK) 是一套进行whql认证的测试框架。HLK套件仅用于windows 10，如果要测试windows 10 之前的操作系统，需要使用HCK套件(Hardware Certification Kit)。
 HCK安装包的下载地址:[https://docs.microsoft.com/en-us/windows-hardware/test/hlk/windows-hardware-lab-kit](https://docs.microsoft.com/en-us/windows-hardware/test/hlk/windows-hardware-lab-kit)。安装完选择Controller + Studio 一路点击Next即可完成测试服务器的安装：
 
-![setup](http://bos.ilovecpp.com/whql/setup.jpg)
+![setup](http://oss.ilovecpp.com/blog/whql/setup.png)
 
 ## 安装测试系统
 测试系统的安装不需要额外的去下载安装包了，应该从安装完成的服务端获取。地址为：
 > \\\\\<ControllerName>\HLKInstall\Client\Setup.cmd
 
 例如我们的服务器地址是192.168.2.239：
-![setup](http://bos.ilovecpp.com/whql/clientsetup.jpg)
+![setup](http://oss.ilovecpp.com/blog/whql/clientsetup.png)
 
 双击setup.cmd，即可出现安装界面： 
 
-![setup](http://bos.ilovecpp.com/whql/clientsetup2.jpg) 
+![setup](http://oss.ilovecpp.com/blog/whql/clientsetup2.png)
 
 也是一路点击next即可完成安装。
 
 安装完HLK client之后，去服务端打开HLK studio，便可以在默认连接池中找到我们刚刚成功安装的HLK client
 
-![setup](http://bos.ilovecpp.com/whql/pool.jpg) 
+![setup](http://oss.ilovecpp.com/blog/whql/pool.png)
 
 HLK的测试环境到此搭建完成。
 
@@ -51,30 +51,30 @@ HLK的测试环境到此搭建完成。
 
 配置好计算机池后，我们就可以新建测试项目了：
 
-![setup](http://bos.ilovecpp.com/whql/start.jpg) 
+![setup](http://oss.ilovecpp.com/blog/whql/start.png)
 
 新建完成后选择项目，然后点击Selection，到这里可以选择测项，由于我们的驱动程序是一个文件系统，选择下图红圈中的Software device，选到对应的驱动程序，打上勾即可：
 
-![setup](http://bos.ilovecpp.com/whql/selection.jpg) 
+![setup](http://oss.ilovecpp.com/blog/whql/selection.png)
 
 下面切换到Tests选项，下图是测项旁边可能会出现的几种标志的意思，比如有个人形的logo代表测试的时候需要交互：
 
-![setup](http://bos.ilovecpp.com/whql/state.png) 
+![setup](http://oss.ilovecpp.com/blog/whql/state.png)
 
 给全部的测项打上勾，点击Run Selected，此时测试就开始了。
 
-![setup](http://bos.ilovecpp.com/whql/test.png) 
+![setup](http://oss.ilovecpp.com/blog/whql/test.png)
 
 测试的过程中测试系统会重启，等重启完成后，如果驱动程序需要手动启动的话，就先启动我们的驱动程序，驱动程序启动后就不需要再操作测试系统了，等待测试完成即可。当测试结果出现错误的时候，首先确保测试系统为英文操作系统。
 
 ## 测试结果打包
 如果一切顺利的话，所有的测项都通过了，就可以对测试的结果打包，提交给微软审核了。打包需要的几个材料分别是：
 
-![setup](http://bos.ilovecpp.com/whql/hlkx.jpg) 
+![setup](http://oss.ilovecpp.com/blog/whql/hlkx.png)
 
 蓝色的项目中不需要我们手动添加了，我们需要提供EV代码签过名的驱动程序以及对应的inf文件，还有对应的pdb符号文件。点击Create Package ，
 
-![setup](http://bos.ilovecpp.com/whql/package.jpg)
+![setup](http://oss.ilovecpp.com/blog/whql/package.png)
 
 这时候会弹出一个签名的提示，根据情况选择2或3即可，未签名的hlkx文件是无法提交给微软审核的。等待打包完成会生成一个hlkx文件，这个就是需要提交给微软审核测试包了，具体过程不赘述了，非常简单。通常耐心等待20分钟即可完成审核，获得微软的数字签名（所谓的微软徽标认证）。
 

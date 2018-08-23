@@ -11,7 +11,7 @@ categories: 随想
 Markdown语法及其简单，学习成本非常低。不需要再鼠标点来点去，添加几个符号，就能设定好文章的结构、排版。不需要再费劲心思去折腾什么编辑器插件好用，什么语法高亮插件漂亮。这样的体验简直太爽。换了Hexo，现在我完全可以沉浸于写博客，不必分心于其他的事情。
 ## 使用BAE
 这真的不是广告。BAE（Baidu app engine）应该是现在国内最好用的app engine了。相比SAE，多了好几种语言环境，而且支持git和svn版本控制。而且关键的是便宜，由于hexo发布后的内容全是静态的页面，因此选择1毛钱每天的配置就够用了。这个方案的配置:
-![image](http://baixiangcpp-blog.gz.bcebos.com/start-blog-with-bae/detail.png)
+![image](http://oss.ilovecpp.com/blog/start-blog-with-bae/detail.png)
 由于BAE支持git版本控制，因此hexo发布的过程和使用GitHub pages是一样的了，在这里不再赘述。
 可以说是一个小小的遗憾吧，BAE的git是不可以创建其他的分支的，本来我还想着master分支用来放发布的网页，创建一个其他的分支用来放hexo的项目源码。不过没关系，还好有Github。
 至此，只要有node的环境，到哪里都可以安静的写博客了，而且成本才每天一毛钱。
