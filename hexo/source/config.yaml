@@ -1,0 +1,3 @@
+handle:
+
+- rewrite: if( in_header["Host"] == "ilovecpp.com" ) goto "http://www.ilovecpp.com%{REQUEST_URI}"
