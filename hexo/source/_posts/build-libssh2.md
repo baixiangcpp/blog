@@ -13,7 +13,7 @@ STP(SSH File Transfer Protocol)是一款基于SSH协议的文件传输协议。S
 ![openssl](http://oss.ilovecpp.com/blog/build-libssh2/Win32OpenSSL.png)
 zlib的库就更多了，即使不是程序员都能轻易找到。关于这个两个库的编译也比较简单，就不记录了。
 ## 编译libssh2
-官方也提供了CMake，NMake的方式进行构建项目，这里我使用的是CMakeake，因为我对CMake相对熟悉一点。官方在[Github](https://github.com/libssh2/libssh2/blob/master/docs/INSTALL_CMAKE)上也对CMake Configure的一些选项进行了说明,其中最主要的有这几个选项：
+官方也提供了CMake，NMake的方式进行构建项目，这里我使用的是CMake，因为我对CMake相对熟悉一点。官方在[Github](https://github.com/libssh2/libssh2/blob/master/docs/INSTALL_CMAKE)上也对CMake Configure的一些选项进行了说明,其中最主要的有这几个选项：
 ```
  * `BUILD_SHARED_LIBS=OFF`
 
@@ -39,14 +39,24 @@ BUILD_SHARED_LIBS标记的是编译一个静态库还是动态库，由于我是
 到现在为止，执行cmake还不能成功Configure项目：
 ![cmake-error](http://oss.ilovecpp.com/blog/build-libssh2/cmake-error.png)
 主要是找不到zlib的头文件以及lib文件，而openssl的头文件和lib文件却被发现了（cmake中的脚本中方使用find_path，find_library两个函数找到的），手动提供他们的路径(`拷贝windows的路径的时候，要注意把路径中反斜杠改成斜杠/，使用反斜杠\一般都会报错Invalid character escape '\U'.比较难以察觉。`)即可，需要使用这两个变量：
+
 ```
-ZLIB_LIBRARY //zlib.lib完整路径
+ZLIB_LIBRARY //zlib
 ZLIB_INCLUDE_DIR  //.h文件所在的目录
 ```
+
 现在将cmake Configure的命令修改为：
+
 ```
-cmake -DENABLE_ZLIB_COMPRESSION=ON -DCRYPTO_BACKEND=OpenSSL -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=./dll -DZLIB_LIBRARY=C:/Users/eric/Desktop/code/zlib/zlib.lib -DZLIB_INCLUDE_DIR=C:/Users/eric/Desktop/code/zlib --build .
+cmake -DENABLE_ZLIB_COMPRESSION=ON -DCRYPTO_BACKEND=OpenSSL -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=./dll -DZLIB_LIBRARY=zdll -DZLIB_INCLUDE_DIR=./zlib --build .
 ```
+
+如果要编译为64位加上:
+
+```
+-DCMAKE_GENERATOR_PLATFORM=x64
+```
+
 稍等半分钟，这时候已经能够生成.sln结尾的解决方案文件（我是用的是VS2015，如果采用的是其他的编译环境则不一定是这个）。执行`cmake --build . --target install` 或者用vs打开解决方案都能编译libssh2了。
 ![cmake-error](http://oss.ilovecpp.com/blog/build-libssh2/success.png)
 直接使用visual studio编译，全部生成成功。到此编译完成。
