@@ -13,7 +13,7 @@
     <span data-ty="input">echo $github</span>
     <span data-ty>https://github.com/baixiangcpp</span>
     <span data-ty="input">echo $skills</span>
-    <span data-ty>C/C++ > Python > </span>
+    <span data-ty>C/C++ > Python > Web Security</span>
     <span data-ty="input">echo $interests</span>
     <span data-ty>高并发网络库，Web安全,有挑战的事儿</span>
     <span data-ty="input">sudo init 0</span>
