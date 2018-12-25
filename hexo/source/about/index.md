@@ -6,7 +6,7 @@
 <div id="termynal" data-termynal>
     <span data-ty="input">echo $name</span>
     <span data-ty>周柏祥</span>
-    <span data-ty="input" startDelay="0">echo $address</span>
+    <span data-ty="input" >echo $address</span>
     <span data-ty>深圳</span>
     <span data-ty="input">echo $email</span>
     <span data-ty>baixiangcpp@gmail.com</span>
