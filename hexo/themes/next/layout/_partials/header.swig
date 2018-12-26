@@ -40,7 +40,11 @@
       {% for name, path in theme.menu %}
         {% set itemName = name.toLowerCase() %}
         <li class="menu-item menu-item-{{ itemName }}">
-          <a href="{{ url_for(path) }}" rel="section">
+          {% if itemName == 'about' %}
+            <a onclick=showAbout() rel="section">
+          {% else %}
+            <a href="{{ url_for(path) }}" rel="section">
+          {% endif %}
             {% if theme.menu_icons.enable %}
               <i class="menu-item-icon fa fa-fw fa-{{theme.menu_icons[itemName] | default('question-circle') | lower }}"></i> <br />
             {% endif %}
