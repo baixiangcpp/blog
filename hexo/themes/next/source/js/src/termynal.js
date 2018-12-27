@@ -31,11 +31,11 @@ class Termynal {
         this.container = (typeof container === 'string') ? document.querySelector(container) : container;
         this.pfx = `data-${options.prefix || 'ty'}`;
         this.startDelay = options.startDelay
-            || parseFloat(this.container.getAttribute(`${this.pfx}-startDelay`)) || 500;
+            || parseFloat(this.container.getAttribute(`${this.pfx}-startDelay`)) || 600;
         this.typeDelay = options.typeDelay
             || parseFloat(this.container.getAttribute(`${this.pfx}-typeDelay`)) || 90;
         this.lineDelay = options.lineDelay
-            || parseFloat(this.container.getAttribute(`${this.pfx}-lineDelay`)) || 0;
+            || parseFloat(this.container.getAttribute(`${this.pfx}-lineDelay`)) || 1500;
         this.progressLength = options.progressLength
             || parseFloat(this.container.getAttribute(`${this.pfx}-progressLength`)) || 40;
         this.progressChar = options.progressChar
@@ -46,6 +46,8 @@ class Termynal {
             || this.container.getAttribute(`${this.pfx}-cursor`) || '▋';
         this.lineData = this.lineDataToElements(options.lineData || []);
         if (!options.noInit) this.init()
+
+        console.log('1112222')
     }
 
     /**
@@ -60,10 +62,10 @@ class Termynal {
          * If container is empty and lines are dynamically loaded, defaults to browser `auto` or CSS.
          */ 
         const containerStyle = getComputedStyle(this.container);
-        this.container.style.width = containerStyle.width !== '0px' ? 
-            containerStyle.width : undefined;
-        this.container.style.minHeight = containerStyle.height !== '0px' ? 
-            containerStyle.height : undefined;
+        // this.container.style.width = containerStyle.width !== '0px' ? 
+        //     containerStyle.width : undefined;
+        // this.container.style.minHeight = containerStyle.height !== '0px' ? 
+        //     containerStyle.height : undefined;
 
         this.container.setAttribute('data-termynal', '');
         this.container.innerHTML = '';
@@ -187,11 +189,22 @@ class Termynal {
     }
 }
 
-/**
-* HTML API: If current script has container(s) specified, initialise Termynal.
-*/
-if (document.currentScript.hasAttribute('data-termynal-container')) {
-    const containers = document.currentScript.getAttribute('data-termynal-container');
-    containers.split('|')
-        .forEach(container => new Termynal(container))
+termynalnode =  $('#termynal');
+
+$("#termynalbg").click(function(){
+    $('#termynal').hide();
+    $('#termynal').empty();
+    $(this).css('display','none');
+    
+});
+
+$("#termynal").click(function(){
+    return false;  
+});
+
+
+function onaboutmeclicked(){
+    $('#termynalbg').css('display','block');
+    $('#termynal').show();
+    new Termynal("#termynal");
 }

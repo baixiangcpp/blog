@@ -41,7 +41,7 @@
         {% set itemName = name.toLowerCase() %}
         <li class="menu-item menu-item-{{ itemName }}">
           {% if itemName == 'about' %}
-            <a onclick=showAbout() rel="section">
+            <a onclick=onaboutmeclicked() rel="section">
           {% else %}
             <a href="{{ url_for(path) }}" rel="section">
           {% endif %}

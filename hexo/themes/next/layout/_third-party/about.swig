@@ -1,6 +1,8 @@
-  <link rel="stylesheet" href="termynal.css">
+  <div class="termynal-bg" id="termynalbg" style="display: none;">
+  
+  <link rel="stylesheet" href="http://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog-css/termynal.css">
 
-  <div id="termynal" data-termynal style="visibility: hidden; display: none;">
+  <div id="termynal" data-termynal class="termynal-container">
     <span data-ty="input">echo $name</span>
     <span data-ty>周柏祥</span>
     <span data-ty="input">echo $address</span>
@@ -18,5 +20,8 @@
     <span data-ty="progress" data-ty-progressChar="·"></span>
     <span data-ty>Bye</span>
   </div>
+</div>
 
-  <script src="termynal.js" data-termynal-container="#termynal"></script>
+  <script src="/js/src/jqery.js"></script>
+
+  <script src="/js/src/termynal.js" data-termynal-container="#termynal"></script>
