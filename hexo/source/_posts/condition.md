@@ -7,17 +7,19 @@ categories: linux
 
 最近看《Linux高性能服务端编程》一书，书上对条件变量的封装比较有意思:
 ![cond](https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/condition/cond.png)
-作者通过这样奇怪的封装，将mutex隐藏到在cond类里边。<!-- more -->
+作者通过这样奇怪的封装，将mutex隐藏到在cond类里边。但是，这样封装的条件变量是不能正常使用的。<!-- more -->
 
 # mutex到底用来保护什么？
 
-先看《Linux系统编程手册》对这个问题的介绍：
+通常在程序里，我们使用条件变量来表示等待"某一条件"的发生。虽然名叫"条件变量"，但是它本身并不保存条件状态，本质上条件变量仅仅是一种通讯机制：当有一个线程在等待(pthread_cond_wait)某一条件变量的时候，会将当前的线程挂起，直到另外的线程发送信号(pthread_cond_signal)通知其解除阻塞状态。
+
+由于要用额外的共享变量保存条件状态(这个变量可以是任何类型比如bool)，由于这个变量会同时被不同的线程访问，因此需要一个额外的mutex保护它。
+
+《Linux系统编程手册》也有这个问题的介绍：
 
 > A condition variable is always used in conjunction with a mutex. The mutex provides mutual exclusion for accessing the shared variable, while the condition variable is used to signal changes in the variable’s state. 
 
 条件变量总是结合mutex使用，条件变量就共享变量的状态改变发出通知，mutex就是用来保护这个共享变量的。
-
-这很好理解，通常在程序里，我们使用条件变量来表示等待"某一条件"的发生。虽然名叫"条件变量"，但是它本身并不保存条件状态，本质上条件变量仅仅是一种通讯机制：当有一个线程在等待(pthread_cond_wait)某一条件变量的时候，会将当前的线程挂起，直到另外的线程发送信号(pthread_cond_signal)通知其解除阻塞状态。我们需要用额外的变量保存条件状态(这个变量可以是任何类型比如bool)，由于这个变量会同时被不同的线程访问，因此需要一个额外的mutex保护它。
 
 # 为什么pthread_cond_wait()需要mutex参数?
 
@@ -96,7 +98,9 @@ class cond
     pthread_cond_t m_cond;
 };
 ```
-这段代码大致上有3个问题，首先，wait()函数直接将mutex隐藏到其实现里边，这里的mutex完全没发挥作用，没有保护任何的东西，仅仅是为了适配pthread_cond_wait()接口。如果仅仅只有这个问题那也罢了，最多损失一下性能多几下mutex加锁解锁的消耗。另外没有使用额外的共享变量保存条件状态，即使不需要wait的时候，也无脑pthread_cond_wait()，这是不必要的。更糟糕的是，这会导致死锁，我们先来使用一下这里封装的条件变量:
+这段代码大致上有2个问题，首先，wait()函数直接将mutex隐藏到其实现里边，这里的mutex完全没发挥作用，没有保护任何的东西，仅仅是为了适配pthread_cond_wait()接口。如果仅仅只有这个问题那也罢了，最多损失一下性能多几下mutex加锁解锁的消耗。
+
+更糟糕的是，这会导致死锁，我们先来使用一下这里封装的条件变量:
 
 ```C++
 cond c;
