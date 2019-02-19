@@ -1,7 +1,7 @@
 ---
 title: 抽丝剥茧libevent——通用的编程技法
 date: 2018-4-20 22:40:35
-tags: [linux,libevent,网络，pimpl]
+tags: [linux,libevent,网络,pimpl]
 categories: libevent
 ---
 
