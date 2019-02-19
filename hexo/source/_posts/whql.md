@@ -1,7 +1,7 @@
 ---
 title: win10驱动通过微软whql认证经验
 date: 2018-3-16 19:33:32
-tags: [whql,驱动，windows]
+tags: [whql,驱动,windows]
 categories: 杂谈
 ---
 ## whql认证是什么
