@@ -1,21 +1,21 @@
 ---
-title: 协程那些事儿（上）
+title: 协程那些事儿
 date: 2018-12-19 19:43:35
 tags: [linux,协程,线程]
 categories: linux
 ---
 
-`协程`并不是什么新概念，可以理解为是拥有了控制权的用户态线程，用户可以自行选择切换用户上下文(user context)的时机，不需要操作系统额外调度([Steps in Context Switching](https://stackoverflow.com/questions/7439608/steps-in-context-switching))。光这一点就足够牛逼了，现在Linux采用的是[NPTL](http://man7.org/linux/man-pages/man7/nptl.7.html)线程模型,线程和进程在内核里边都是同样的PCB块(task_struct)，看上去还是比较重量级的。网上找来一个有趣的测试，一次线程切换的开销大概是10Kns的量级:[线程切换的开销到底有多大](https://www.yuque.com/jwang/tfvf35/yehli6)。
-
-具体的为什么协程上下文切换比线程要快，网上也有讨论：[https://www.zhihu.com/question/308641794/answer/572499202](https://www.zhihu.com/question/308641794/answer/572499202)。根据这个作者的测试结果，切换协程的开销大概只有几十纳秒(ns)。
-
-使用协程，异步+回调编程模式，可以用同步的逻辑表示出来，这样的程序更直观易读。目前好多高级语言引入了协程的概念，遗憾的是，C语言中并没有这样的特性。但是有多种方式可以实现上下文切换，最常见的两种分别是：汇编和ucontext系列函数。
-
-搬砖之余，参考了[corountine](https://github.com/cloudwu/coroutine)和[libco](https://github.com/Tencent/libco)的源码，在此记录下一些学习心得。
-
-内容可能会偏多，打算分成两个章节来写，这一节主要写上下文切换的原理。下一节以libco为例，深入看一下这个库。corountine太轻量级了，就不多赘述了。
+协程并不是什么新概念，可以理解为是拥有了控制权的用户态线程，用户可以自行选择切换用户上下文(user context)的时机，不需要操作系统额外调度([Steps in Context Switching](https://stackoverflow.com/questions/7439608/steps-in-context-switching))。光这一点就足够牛逼了，现在Linux采用的是[NPTL](http://man7.org/linux/man-pages/man7/nptl.7.html)线程模型,线程和进程在内核里边都是同样的PCB块(task_struct)，看上去还是比较重量级的。网上找来一个有趣的测试，一次线程切换的开销大概是10Kns的量级:[线程切换的开销到底有多大](https://www.yuque.com/jwang/tfvf35/yehli6)。具体的为什么协程上下文切换比线程要快，网上也有讨论：[https://www.zhihu.com/question/308641794/answer/572499202](https://www.zhihu.com/question/308641794/answer/572499202)。根据这个作者的测试结果，切换协程的开销大概只有几十纳秒(ns)。
 
 <!--more-->
+
+# 协程能干什么
+
+使用异步的网络库，回调函数满天飞，有时甚至会出现好几层嵌套的回调，非常不利于代码的阅读。有了协程之后，同样的功能，我们可以使"同步阻塞"的方式组织代码。`阻塞`其实是一个用户态的概念，而内核是不会阻塞的，当发生耗时的IO操作时，当前线程剩余的时间片会被放弃，其他线程得到CPU，这样的过程也就是上下文切换。和内核一样，使用协程库后，我们可以使用"同步阻塞"的方式组织代码，而实际当“阻塞”发生时，程序会继续执行其他的执行流，而当"阻塞"的操作完成的时候，执行流会自动跳转回来继续向下执行。
+
+协程库的作用就是提供一些列的接口，让程序拥有在用户态切换上下文的能力，而上下文切换的时机需要调用者自行决断。
+
+一个协程库最核心的技术就是上下文切换。搬砖之余，参考了[corountine](https://github.com/cloudwu/coroutine)和[libco](https://github.com/Tencent/libco)的源码，在此对比一下这两个库上下文切换的技术实现。
 
 # 汇编实现上下文切换
 
