@@ -8,7 +8,7 @@ categories: linux
 很长一段时间，我曾以为像定时器这样基础的功能，操作系统会有一个完备的实现。当需要开启一个定时任务的时候，会有一个优雅的、如下形式的接口：
 ```C
 typedef void (*callback)(void*);
-setTimeout(unsigned int second,callback cb，void* arg);
+void setTimeout(unsigned int second,callback cb，void* arg);
 ```
 可是事与愿违，Linux下不存在这样的接口。<!--more-->
 
