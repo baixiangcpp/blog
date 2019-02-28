@@ -1,12 +1,14 @@
 ---
-title: seafile核心原理——部署和编译
+title: 搭建seafile windows客户端的交叉编译环境
 date: 2018-6-25 23:40:35
 tags: [linux,seafile,网络]
 categories: seafile
 ---
 
 Seafile是一款非常优秀的跨平台的国产开源企业云存储软件,Github上的仓库已经拥有了超过6000的star。由于工作的原因，学习了一段时间的seafile，这里将我的一些心得记录下来，但愿帮助后来者少走一点弯路。
-Seafile功能强大，组件丰富，社区版本可以在其官网下载到，[https://www.seafile.com/download/](https://www.seafile.com/download/)。服务端同时支持Linux和Windows，文档也很详细，按照[https://manual-cn.seafile.com/](https://manual-cn.seafile.com/)部署起来并不复杂。
+
+Seafile功能强大，组件丰富，社区版本可以在其官网下载到，[https://www.seafile.com/download/](https://www.seafile.com/download/)。服务端同时支持Linux和Windows，文档也很详细，按照[https://manual-cn.seafile.com/](https://manual-cn.seafile.com/)部署起来并不复杂。<!--more-->
+
 为了学习其原理，首先我们得拥有编译整个项目的能力，官方也提供了各种版本的编译文档：
 
 > Client
@@ -16,7 +18,7 @@ Seafile功能强大，组件丰富，社区版本可以在其官网下载到，[
 > Server
 > - [Build Seafile server](https://manual.seafile.com/build_seafile/server.html)
 
-但是并没有提供Windows版本客户端的编译方案。我根据官方提供的Linux客户端编译方案，写了一个Makefile可以同时编译出Linux和Windows两个平台的客户端。<!--more-->
+但是并没有提供Windows版本客户端的编译方案。我根据官方提供的Linux客户端编译方案，写了一个Makefile可以同时编译出Linux和Windows两个平台的客户端。
 
 ## 组件依赖
 
