@@ -5,7 +5,9 @@ tags: [linux,协程,线程]
 categories: linux
 ---
 
-协程并不是什么新概念，可以理解为是拥有了控制权的用户态线程，用户可以自行选择切换用户上下文(user context)的时机，不需要操作系统额外调度([Steps in Context Switching](https://stackoverflow.com/questions/7439608/steps-in-context-switching))。光这一点就足够牛逼了，现在Linux采用的是[NPTL](http://man7.org/linux/man-pages/man7/nptl.7.html)线程模型,线程和进程在内核里边都是同样的PCB块(task_struct)，看上去还是比较重量级的。网上找来一个有趣的测试，一次线程切换的开销大概是10Kns的量级:[线程切换的开销到底有多大](https://www.yuque.com/jwang/tfvf35/yehli6)。具体的为什么协程上下文切换比线程要快，网上也有讨论：[https://www.zhihu.com/question/308641794/answer/572499202](https://www.zhihu.com/question/308641794/answer/572499202)。根据这个作者的测试结果，切换协程的开销大概只有几十纳秒(ns)。
+协程并不是什么新概念，可以理解为是拥有了控制权的用户态线程，用户可以自行选择切换用户上下文(user context)的时机，不需要操作系统额外调度([Steps in Context Switching](https://stackoverflow.com/questions/7439608/steps-in-context-switching))。
+
+光这一点就足够牛逼了，现在Linux采用的是[NPTL](http://man7.org/linux/man-pages/man7/nptl.7.html)线程模型,线程和进程在内核里边都是同样的PCB块(task_struct)，看上去还是比较重量级的。网上找来一个有趣的测试，一次线程切换的开销大概是10Kns的量级:[线程切换的开销到底有多大](https://www.yuque.com/jwang/tfvf35/yehli6)。具体的为什么协程上下文切换比线程要快，网上也有讨论：[https://www.zhihu.com/question/308641794/answer/572499202](https://www.zhihu.com/question/308641794/answer/572499202)。根据这个作者的测试结果，切换协程的开销大概只有几十纳秒(ns)。
 
 <!--more-->
 

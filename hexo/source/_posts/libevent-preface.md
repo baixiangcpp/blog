@@ -43,7 +43,7 @@ sudo make install
 
 如需编译debug版本，仅需要在configure的时候加上CFLAGS:
 
-> $ CFLAGS=-DUSE_DEBUG ./configure [...]
+> $ CFLAGS=-ggdb3 -O0 ./configure[...]
 
 要检测libevent是否正确安装，可以使用源码包里边的helloworld程序进行测试，路径是/libevent-2.1.8-stable/sample/hello-world，运行后另开一个终端，netcat一下本机的9995端口，如果能收到hello world消息，则表示libevent已经安装完成:
 
