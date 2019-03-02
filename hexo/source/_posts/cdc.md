@@ -7,11 +7,11 @@ categories: C
 
 作为一个支持增量传输、去重存储的同步盘，实现一个高效率的文件分块算法是重中之重。本篇博客在研究了seafile的分块算法之后，将其中的分块算法实现抽取了出来，并详细描述了它基于可变长度分块(Content Defined Chunking)算法的实现。项目托管在Github上:[FileCDC](https://github.com/baixiangcpp/FileCDC)。
 
-使用起来很方便，直接`make`编译，然后指定要分块的文件即可:
+编译后，直接将文件名作为参数，即可分块:
 
 ![cdc](https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/cdc/cdc.gif)
 
-同时也很方便集成到其他的项目里,调用`cdc_work(const char* filename)`即可。<!--more-->
+同时也很方便集成到其他的项目里,调用`cdc_work(const char* filename)`会将file分块。<!--more-->
 
 # 基本原理
 
