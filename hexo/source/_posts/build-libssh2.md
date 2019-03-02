@@ -4,6 +4,7 @@ date: 2017-9-24 16:33:32
 tags: [ssh,openssl]
 categories: SSH2
 ---
+
 前两个星期的时候对一条悲伤的新闻印象比较深刻，Google Chrome宣布将FTP站点标记为不安全。由于FTP具有的致命的缺陷：密码和文件内容都使用明文传输。估计再苟延残喘几年，就快成互联网的化石了。目前FTP的替代协议用的最多的就是SFTP了。
 STP(SSH File Transfer Protocol)是一款基于SSH协议的文件传输协议。SSH保证了其数据在传输的过程中安全不被窃听。大学的时候实现过一个简单的FTP的服务端程序，今天正好有空，打算学习一下SFTP。SFTP在服务端并没有单独的守护进程，和SSH都是使用的sshd。因此我打算在windows上编译一下libssh2的库(早期的ssh1存在一些安全性的漏洞)，看一下自带的DEMO程序 。libssh2在Github上只有200多个star，关于它怎么编译的中文内容不是很多，于是我记录下来编译的过程。<!--more-->
 ## libssh2依赖的组件

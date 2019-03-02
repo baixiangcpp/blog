@@ -1,6 +1,6 @@
 ---
 title: 一个基于现代C++简单线程池的实现
-date: 2018-09-30 16:33:32
+date: 2018-11-15 16:33:32
 tags: [c++,thread-safe]
 categories: c++
 ---
@@ -15,7 +15,7 @@ categories: c++
 
 # 使用高级的同步数据结构
 
-虽然使用[std::condition_variable](https://en.cppreference.com/w/cpp/thread/condition_variable)已经比使用pthread_cond_t要方便多了，但是我仍然不打算直接使用用它。在前面[当谈论线程安全时，我们在谈论什么](http://www.ilovecpp.com/2018/12/01/thread-safe/)一文中，我自己才总结了应尽量避免直接使用底层的同步原语，而是用高级的数据结构。我不能这么着急的打自己的脸。
+虽然使用[std::condition_variable](https://en.cppreference.com/w/cpp/thread/condition_variable)已经比使用pthread_cond_t要方便多了，但是我仍然不打算直接使用用它。在前面[当谈论线程安全时，我们在谈论什么](http://www.ilovecpp.com/2018/11/01/thread-safe/)一文中，我自己才总结了应尽量避免直接使用底层的同步原语，而是用高级的数据结构。我不能这么着急的打自己的脸。
 
 java里的BlockingQueue正符合。他除了用来表示生产者消费者模型，还来实现任务队列。
 
@@ -80,7 +80,7 @@ BlockingQueue实现有2处可以提升性能的地方 ：
 
 put操作由于需要把mutex交给cond_解锁，因此使用了std::unique_lock<>而非std::lock_guard<>。
 
-此外，自从有了lambda之后，STL中像条件变量wait()这样的函数多了好些个，[《正确封装条件变量不容易》](http://www.ilovecpp.com/2018/11/29/condition/) 可以参考这种封装方法。
+此外，自从有了lambda之后，STL中像条件变量wait()这样的函数多了好些个，[《正确封装条件变量不容易》](http://www.ilovecpp.com/2018/09/29/condition/) 可以参考这种封装方法。
 
 # ThreadPool实现
 

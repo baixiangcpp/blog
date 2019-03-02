@@ -72,7 +72,7 @@ struct event {
 
 ![event](https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-reactor/event.png)
 
-下面就围绕这张图的上半部分，结合源码探究event的前半生。event的下半生将在[抽丝剥茧libevent——事件处理框架](http://www.ilovecpp.com/2018/06/29/libevent-event-base-analyze/)介绍。
+下面就围绕这张图的上半部分，结合源码探究event的前半生。event的下半生将在[抽丝剥茧libevent——事件处理框架](http://www.ilovecpp.com/2018/05/06/libevent-event-base-analyze/)介绍。
 
 # 初始化event
 
