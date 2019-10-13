@@ -317,19 +317,22 @@ disqus:
 #hypercomments_id:
 
 #gitment
-gitment:
+# gitment:
+#   enable: true
+#   githubID: baixiangcpp
+#   repo: hexo
+#   ClientID: ddb4a065ef5dbedb224e
+#   ClientSecret: 0ede77323508d56231b1281291538bfd45303b20
+#   lazy: false
+
+gittalk:
   enable: true
-  githubID: baixiangcpp
-  repo: hexo
-  ClientID: ddb4a065ef5dbedb224e
-  ClientSecret: 0ede77323508d56231b1281291538bfd45303b20
-  lazy: false
 
 # changyan
-changyan:
-  enable: false
-  appid: cyt6A34pn
-  appkey: aac8aceba62ed7662d8f2d1293be246a
+# changyan:
+#   enable: false
+#   appid: cyt6A34pn
+#   appkey: aac8aceba62ed7662d8f2d1293be246a
 
 # Support for youyan comments system.
 # You can get your uid from http://www.uyan.cc

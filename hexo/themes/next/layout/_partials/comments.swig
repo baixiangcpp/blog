@@ -4,13 +4,8 @@
       <div class="ds-thread" data-thread-key="{{ page.path }}"
            data-title="{{ page.title }}" data-url="{{ page.permalink }}">
       </div>
-    {% elseif theme.gitment.enable %}
-      {% if theme.gitment.lazy %}
-        <div onclick="showGitment()" id="gitment-display-button">{{  __('gitmentbutton') }}</div>
-        <div id="gitment-container" style="display:none"></div>
-      {% else %}
-        <div id="gitment-container"></div>
-      {% endif %}
+    {% elseif theme.gittalk.enable %}
+      <div id="gitalk-container"></div>
     {% elseif theme.facebook_sdk.enable and theme.facebook_comments_plugin.enable %}
       <div class="fb-comments"
            data-href="{{ page.permalink }}"
