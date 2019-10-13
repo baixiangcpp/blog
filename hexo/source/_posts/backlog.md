@@ -1,8 +1,8 @@
 ---
 title: 对知乎问题'listen(2)系统调用的backlog参数无效？'的一次实验
-date: 2018-06-26 22:40:13
-tags: [linux,network]
-categories: network
+date: 2018-07-26 22:40:13
+tags: [linux,thread,thread-safety]
+categories: thread-safety
 ---
 
 原问题的地址:[listen(2)系统调用的backlog参数无效？](https://www.zhihu.com/question/57337887)。几个回答的争议也比较大。
