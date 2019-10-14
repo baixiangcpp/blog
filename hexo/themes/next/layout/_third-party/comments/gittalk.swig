@@ -9,10 +9,10 @@
 
             clientSecret: '0ede77323508d56231b1281291538bfd45303b20', //Client Secret
 
-            repo: 'hexo',//仓库名称
-            owner: 'baixiangcpp',//仓库拥有者
+            repo: 'hexo',
+            owner: 'baixiangcpp',
             admin: ['baixiangcpp'],
-            id: location.href,      // Ensure uniqueness and length less than 50
+            id: location.pathname,      // Ensure uniqueness and length less than 50
             distractionFreeMode: false  // Facebook-like distraction free mode
         })
 
