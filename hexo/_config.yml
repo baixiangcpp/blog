@@ -7,7 +7,7 @@ title: Baixiangcpp's Blog
 subtitle:
 description: 源码之前，了无秘密。
 author: Baixiangcpp
-language: zh-Hans
+language: zh-CN
 timezone:
 
 #AVATAR
@@ -37,7 +37,8 @@ skip_render:
 new_post_name: :title.md # File name of new posts
 default_layout: post
 titlecase: false # Transform title into titlecase
-external_link: true # Open external links in new tab
+external_link:
+    enbale : true
 filename_case: 0
 render_drafts: false
 post_asset_folder: false
@@ -69,7 +70,7 @@ pagination_dir: page
 # Extensions
 ## Plugins: https://hexo.io/plugins/
 ## Themes: https://hexo.io/themes/
-theme: next
+theme: next-reloaded
 
 # Deployment
 ## Docs: https://hexo.io/docs/deployment.html
