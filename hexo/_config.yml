@@ -78,3 +78,13 @@ deploy:
     type: git
     repo:  https://git.sinacloud.com/ilovecpp
     branch: 1
+
+#plugins
+Plugins:
+- hexo-generator-baidu-sitemap
+- hexo-generator-sitemap
+
+baidusitemap:
+    path: baidusitemap.xml
+sitemap:
+    path: sitemap.xml

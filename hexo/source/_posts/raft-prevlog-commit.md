@@ -27,9 +27,7 @@ categories: 分布式系统
 
 - (d) S1 crash, S5 当选 Leader (Term >= 5, 选票可以来自 S2，S3，S4，S5) ，并将日志(Term:3,Index:2)复制到其他所有节点并成功提交
 
-日志(Term:2,Index:2)虽然已经提交，却因为 conflict 被 truncate 掉了(详情见论文 Figure 2 日志复制 RPC 的描述:If an existing entry conflicts with a new one (same index
-but different terms), delete the existing entry and all that
-follow it )。
+日志(Term:2,Index:2)虽然已经提交，却因为 conflict 被 truncate 掉了。详情见论文 Figure 2 日志复制 RPC 的描述:If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it。
 
 于是 Index = 2 的日志就被提交了两次，一次是 Term = 2 ，一次是 Term = 3。对于 Raft 状态机来说这是绝对不允许存在的。
 
