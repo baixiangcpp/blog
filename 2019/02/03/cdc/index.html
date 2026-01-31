@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="作为一个支持增量传输、去重存储的同步盘，实现一个高效率的文件分块算法是重中之重。本篇博客在研究了seafile的分块算法之后，将其中的分块算法实现抽取了出来，并详细描述了它基于可变长度分块(Content Defined Chunking)算法的实现。项目托管在Github上:FileCDC。 编译后，直接将文件名作为参数，即可分块:  同时也很方便集成到其他的项目里,调用cdc_work(con">
+<meta property="og:type" content="article">
+<meta property="og:title" content="一种基于内容可变长度文件分块算法的实现">
+<meta property="og:url" content="https://ilovecpp.com/2019/02/03/cdc/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="作为一个支持增量传输、去重存储的同步盘，实现一个高效率的文件分块算法是重中之重。本篇博客在研究了seafile的分块算法之后，将其中的分块算法实现抽取了出来，并详细描述了它基于可变长度分块(Content Defined Chunking)算法的实现。项目托管在Github上:FileCDC。 编译后，直接将文件名作为参数，即可分块:  同时也很方便集成到其他的项目里,调用cdc_work(con">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/cdc/cdc.gif">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/cdc/rabin.png">
+<meta property="article:published_time" content="2019-02-03T09:31:30.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.838Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="C">
+<meta property="article:tag" content="sefile">
+<meta property="article:tag" content="algorithm">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/cdc/cdc.gif">
+
+<link rel="canonical" href="https://ilovecpp.com/2019/02/03/cdc/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>一种基于内容可变长度文件分块算法的实现 | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2019/02/03/cdc/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          一种基于内容可变长度文件分块算法的实现
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-02-03 17:31:30" itemprop="dateCreated datePublished" datetime="2019-02-03T17:31:30+08:00">2019-02-03</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/C/" itemprop="url" rel="index"><span itemprop="name">C</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>作为一个支持增量传输、去重存储的同步盘，实现一个高效率的文件分块算法是重中之重。本篇博客在研究了seafile的分块算法之后，将其中的分块算法实现抽取了出来，并详细描述了它基于可变长度分块(Content Defined Chunking)算法的实现。项目托管在Github上:<a target="_blank" rel="noopener" href="https://github.com/baixiangcpp/FileCDC">FileCDC</a>。</p>
+<p>编译后，直接将文件名作为参数，即可分块:</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/cdc/cdc.gif" alt="cdc"></p>
+<p>同时也很方便集成到其他的项目里,调用<code>cdc_work(const char* filename)</code>会将file分块。<span id="more"></span></p>
+<h1 id="基本原理"><a href="#基本原理" class="headerlink" title="基本原理"></a>基本原理</h1><p>该实现依赖于<a target="_blank" rel="noopener" href="http://www.cs.cmu.edu/~hakim/software/">Rabin Footprint</a>，俗称Rabin指纹。本文不会(当然也是没能力)深入分析Rabin指纹的数学原理，就像你使用MD5时，无需关心MD5是如何计算的。Rabin算法能够根据前一个数据块的指纹快速得滑动窗口后下一个数据块的指纹:</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/cdc/rabin.png" alt="footprint"></p>
+<p>比如上图中的一个buf，win是其中的一个滑动窗口，利用Rabin算法算出win窗口中数据的指纹，随后将窗口win向后滑动一个字节，Rabin算法能够根据之前算出来的指纹迅速计算出现在这个窗口中数据的指纹。</p>
+<p>由于该算法对数据修改不敏感，结合滑动窗口后，修改文件后分块的差异不会太大，优于固定长度分块。</p>
+<p>当滑动窗口中的指纹与一个预设的值相匹配时就说明到了一个分块的边界，此时窗口中边界就可以被当做一个数据分割点。</p>
+<p>Rabin指纹的算法实现在checksum.c中，暴露了通过两个函数接口操作:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">unsigned</span> <span class="type">int</span> <span class="title function_">rabin_checksum</span><span class="params">(<span class="type">char</span> *buf, <span class="type">int</span> len)</span>;</span><br><span class="line"><span class="type">unsigned</span> <span class="type">int</span> <span class="title function_">rabin_rolling_checksum</span><span class="params">(<span class="type">unsigned</span> <span class="type">int</span> csum, <span class="type">int</span> len, <span class="type">char</span> c1, <span class="type">char</span> c2)</span>;</span><br></pre></td></tr></table></figure>
+
+<p>一个根据buf和长度计算rabin指纹，另外一个是滑动1字节窗口后，根据前一个窗口指纹csum，以及滑出、滑入的字符计算一个新的指纹。</p>
+<h1 id="块命名"><a href="#块命名" class="headerlink" title="块命名"></a>块命名</h1><p>当文件被分块后，通过计算它的SHA1值为其命名。保证了每个块的唯一性。当然SHA1的唯一性不是100%的只是这个概率很小，可以忽略不计。此前Google就成功完成了全球首个SHA1碰撞:<a target="_blank" rel="noopener" href="https://www.freebuf.com/news/127750.html">Google研究人员宣布完成全球首例SHA-1哈希碰撞！</a>。</p>
+<p>计算SHA1的值采用了glib里边的函数：<a target="_blank" rel="noopener" href="https://developer.gnome.org/glib/stable/glib-Data-Checksums.html">Glib Data Checksums</a>。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">checksum</span> <span class="params">(<span class="type">const</span> guchar* buf,<span class="type">unsigned</span> <span class="type">int</span> len,<span class="type">uint8_t</span> *checksum)</span></span><br><span class="line">&#123;</span><br><span class="line">    GChecksum *ctx = g_checksum_new (G_CHECKSUM_SHA1);</span><br><span class="line">    g_checksum_update (ctx,buf, len);</span><br><span class="line">    g_checksum_get_digest (ctx, checksum, &amp;len);</span><br><span class="line">    g_checksum_free (ctx);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>以上就是对一个数据块计算SHA1的过程，整个文件的SHA1是根据最后一个快的SHA1值算出来的。是一个20位长度uint8_t数组，因为一个字节uint_t最大可以表示为0xFF，将其转为字符串的话，需要41个字节保存。utils.h里提供了转换函数:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">rawdata_to_hex</span> <span class="params">(<span class="type">const</span> <span class="type">unsigned</span> <span class="type">char</span> *rawdata, <span class="type">char</span> *hex_str, <span class="type">int</span> n_bytes)</span> ;</span><br></pre></td></tr></table></figure>
+
+<h1 id="CDCDescriptor结构"><a href="#CDCDescriptor结构" class="headerlink" title="CDCDescriptor结构"></a>CDCDescriptor结构</h1><p>利用该实现对文件分块时，需要先初始化CDCFileDescriptor结构，其中每个字段的含义，注释如下:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* define chunk file header and block entry */</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> _<span class="title">CDCFileDescriptor</span> &#123;</span></span><br><span class="line">    <span class="type">uint32_t</span> block_min_sz;    <span class="comment">//最小块大小</span></span><br><span class="line">    <span class="type">uint32_t</span> block_max_sz;    <span class="comment">//最大块大小</span></span><br><span class="line">    <span class="type">uint32_t</span> block_sz;        <span class="comment">//块实际大小</span></span><br><span class="line">    <span class="type">uint64_t</span> file_size;       <span class="comment">//当前CDC处理了文件的大小</span></span><br><span class="line"></span><br><span class="line">    <span class="type">uint32_t</span> block_nr;        <span class="comment">//当前块数量</span></span><br><span class="line">    <span class="type">uint8_t</span> *blk_sha1s;       <span class="comment">//每个块对应的SHA1值,用数组保存</span></span><br><span class="line">    <span class="type">int</span> max_block_nr;         <span class="comment">//最多的块数量</span></span><br><span class="line">    <span class="type">uint8_t</span>  file_sum[CHECKSUM_LENGTH];   <span class="comment">//整个文件的SHA1值</span></span><br><span class="line"></span><br><span class="line">    WriteblockFunc write_block;  <span class="comment">//函数指针，用来写块</span></span><br><span class="line"></span><br><span class="line">&#125; CDCFileDescriptor;</span><br><span class="line"></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> _<span class="title">CDCDescriptor</span> &#123;</span></span><br><span class="line">    <span class="type">uint64_t</span> offset;</span><br><span class="line">    <span class="type">uint32_t</span> len;</span><br><span class="line">    <span class="type">uint8_t</span>  checksum[CHECKSUM_LENGTH];</span><br><span class="line">    <span class="type">char</span>    *block_buf;</span><br><span class="line">    <span class="type">int</span> result;</span><br><span class="line">&#125; CDCDescriptor;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>例如，要对一个文件分块，首先将限定的块大小设置好，并设置写块的回调函数，然后调用filename_chunk_cdc即可分块文件:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">cdc_work</span><span class="params">(<span class="type">const</span> <span class="type">char</span>* filename)</span></span><br><span class="line">&#123;</span><br><span class="line">    CDCFileDescriptor cdc;</span><br><span class="line"></span><br><span class="line">    cdc.block_sz = CDC_AVERAGE_BLOCK_SIZE;</span><br><span class="line">    cdc.block_min_sz = CDC_MIN_BLOCK_SIZE;</span><br><span class="line">    cdc.block_max_sz = CDC_MAX_BLOCK_SIZE;</span><br><span class="line">    cdc.write_block = write_chunk;</span><br><span class="line"></span><br><span class="line">    filename_chunk_cdc(filename,&amp;cdc);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>filename_chunk_cdc将文件打开后，将fd交给file_chunk_cdc()函数。这个就是本算法最核心的函数。</p>
+<h1 id="文件长度小于block-min-sz"><a href="#文件长度小于block-min-sz" class="headerlink" title="文件长度小于block_min_sz"></a>文件长度小于block_min_sz</h1><p>首先file_chunk_cdc()会读入文件的实际大小,对设置的限制进行合法性验证(比如设置block_min_sz小于0等)，随后计算出文件最多会被分成多少块，按这个值为CDCFileDescriptor::blk_sha1s分配空间。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">int</span> <span class="title function_">init_cdc_file_descriptor</span> <span class="params">(<span class="type">int</span> fd,</span></span><br><span class="line"><span class="params">                                     <span class="type">uint64_t</span> file_size,</span></span><br><span class="line"><span class="params">                                     CDCFileDescriptor *file_descr)</span></span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    block_min_sz = file_descr-&gt;block_min_sz;</span><br><span class="line">    max_block_nr = ((file_size + block_min_sz - <span class="number">1</span>) / block_min_sz);</span><br><span class="line">    file_descr-&gt;blk_sha1s = (<span class="type">uint8_t</span> *)<span class="built_in">calloc</span> (<span class="keyword">sizeof</span>(<span class="type">uint8_t</span>),</span><br><span class="line">                                               max_block_nr * CHECKSUM_LENGTH);</span><br><span class="line">    file_descr-&gt;max_block_nr = max_block_nr;</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>先按照block_max_sz分配一个buf，这完全够用了，因为没有那个块能够超过这个长度。随后进入外层的while循坏，如果第一次从文件读入”block_min_sz - tail + READ_SIZE”长度的大小的内容，如果文件的实际长度小于block_min_sz的话:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">file_chunk_cdc</span><span class="params">()</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">while</span> (<span class="number">1</span>)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="keyword">if</span> (tail &lt; block_min_sz || cur &gt;= tail)</span><br><span class="line">        &#123;</span><br><span class="line">            <span class="keyword">if</span> (tail &gt; <span class="number">0</span>)</span><br><span class="line">            &#123;</span><br><span class="line">                <span class="keyword">if</span> (file_descr-&gt;block_nr == file_descr-&gt;max_block_nr)</span><br><span class="line">                &#123;</span><br><span class="line">                    <span class="built_in">printf</span>(<span class="string">&quot;Block id array is not large enough, bail out.\n&quot;</span>);</span><br><span class="line">                    ret = <span class="number">-1</span>;</span><br><span class="line">                    <span class="keyword">goto</span> out;</span><br><span class="line">                &#125;</span><br><span class="line">                WRITE_CDC_BLOCK(tail);</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">break</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>那么说明该文件可以直接被分块，直接调用WRITE_CDC_BLOCK宏将文件写成块。写块的过程不多赘述，以块的SHA1值对应的字符串为文件名。</p>
+<h1 id="文件长度大于block-min-sz"><a href="#文件长度大于block-min-sz" class="headerlink" title="文件长度大于block_min_sz"></a>文件长度大于block_min_sz</h1><p>如果文件块超过了设置的最小块长度的话那么说明文件可能被分块了，注意只是可能，分为两种情况</p>
+<ol>
+<li>也有可能是1块，如果文件长度在block_min_sz和block_max_sz之间，滑动窗口一直滑动到文件尾，Rabin指纹都没有找到一个切割点。</li>
+<li>其他情况下，文件都可能被分块，要么是block_min_sz和block_max_sz之间找到了一个切割点，要么是文件长度大于了block_max_sz。</li>
+</ol>
+<p>现在使用FileCDC对一个较大的文件分块，第一步的过程和上面的一样，但是在判断”tail &lt; block_min_sz || cur &gt;&#x3D; tail”的时候条件不成立，就走到这里的流程：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">file_chunk_cdc</span><span class="params">()</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">while</span> (<span class="number">1</span>)</span><br><span class="line">    &#123;</span><br><span class="line">        ...</span><br><span class="line">        <span class="keyword">if</span> (cur &lt; block_min_sz - <span class="number">1</span>)</span><br><span class="line">            cur = block_min_sz - <span class="number">1</span>;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">while</span> (cur &lt; tail)</span><br><span class="line">        &#123;</span><br><span class="line">            fingerprint = (cur == block_min_sz - <span class="number">1</span>) ? finger(buf + cur - BLOCK_WIN_SZ + <span class="number">1</span>, BLOCK_WIN_SZ) : rolling_finger(fingerprint, BLOCK_WIN_SZ, *(buf + cur - BLOCK_WIN_SZ), *(buf + cur));</span><br><span class="line"></span><br><span class="line">            <span class="comment">/* get a chunk, write block info to chunk file */</span></span><br><span class="line">            <span class="keyword">if</span> (((fingerprint &amp; block_mask) == ((BREAK_VALUE &amp; block_mask))) || cur + <span class="number">1</span> &gt;= file_descr-&gt;block_max_sz)</span><br><span class="line">            &#123;</span><br><span class="line">                <span class="keyword">if</span> (file_descr-&gt;block_nr == file_descr-&gt;max_block_nr)</span><br><span class="line">                &#123;</span><br><span class="line">                    <span class="built_in">printf</span>(<span class="string">&quot;Block id array is not large enough, bail out.\n&quot;</span>);</span><br><span class="line">                    ret = <span class="number">-1</span>;</span><br><span class="line">                    <span class="keyword">goto</span> out;</span><br><span class="line">                &#125;</span><br><span class="line"></span><br><span class="line">                WRITE_CDC_BLOCK(cur + <span class="number">1</span>);</span><br><span class="line">                <span class="keyword">break</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">else</span></span><br><span class="line">            &#123;</span><br><span class="line">                cur++;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>cur代表了文件的分割点，首先分割点肯定从block_min_sz开始，要是cur小于block_min_sz，就将cur置为block_min_sz-1(因为buf下标从0开始的)。</p>
+<p>内层的while循坏里，滑动窗口正式登场。如果”cur &#x3D;&#x3D; block_min_sz - 1”，说明这是第一个窗口就利用finger()函数计算Rabin指纹，否则就利用rolling_finger()函数滑动计算Rabin指纹，rolling_finger()会利用上一次的指纹来计算这次窗口里buf的指纹，速度很快，这个就是Rabin的核心原理。其中finger和rolling_finger是一个宏，分别表示rabin_checksum和rabin_rolling_checksum()。</p>
+<p>下面的if判断条件成立表示了两种可能的分块情况:</p>
+<ol>
+<li>(fingerprint &amp; block_mask) &#x3D;&#x3D; ((BREAK_VALUE &amp; block_mask)) 成立，表示这是Rabin指纹的一个分割点，文件从这里分块。</li>
+<li>cur + 1 &gt;&#x3D; file_descr-&gt;block_max_sz 成立，表示当前块一直到block_max_sz也为找到分割点，文件也必须分块。</li>
+</ol>
+<p>分块候，和刚才一样调用WRITE_CDC_BLOCK宏，将文件写块，保存。</p>
+<p>要是if里边的条件不成立，则表示当前不是文件分割点，调用”cur++”将窗口往后滑动一字节。开始新一轮寻找分割点。如此往复直至最终整个文件都被分块。</p>
+<p>最后为整个文件生成一个SHA1返回给file_descr保存。至此所有文件被分块保存，file_descr-&gt;blk_sha1s里记录了每一个块的SHA1值，file_descr-&gt;file_sum里记录的是整个文件的SHA1值。</p>
+<p>到此整个基于文件内容的可变长度分块算法内容全部结束。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/C/" rel="tag"># C</a>
+              <a href="/tags/sefile/" rel="tag"># sefile</a>
+              <a href="/tags/algorithm/" rel="tag"># algorithm</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2019/01/29/smart-point/" rel="prev" title="都9102年了,你居然还没用上智能指针">
+      <i class="fa fa-chevron-left"></i> 都9102年了,你居然还没用上智能指针
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2022/02/25/raft-paper/" rel="next" title="寻找一种易于理解的一致性算法">
+      寻找一种易于理解的一致性算法 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%9F%BA%E6%9C%AC%E5%8E%9F%E7%90%86"><span class="nav-number">1.</span> <span class="nav-text">基本原理</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%9D%97%E5%91%BD%E5%90%8D"><span class="nav-number">2.</span> <span class="nav-text">块命名</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#CDCDescriptor%E7%BB%93%E6%9E%84"><span class="nav-number">3.</span> <span class="nav-text">CDCDescriptor结构</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%96%87%E4%BB%B6%E9%95%BF%E5%BA%A6%E5%B0%8F%E4%BA%8Eblock-min-sz"><span class="nav-number">4.</span> <span class="nav-text">文件长度小于block_min_sz</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%96%87%E4%BB%B6%E9%95%BF%E5%BA%A6%E5%A4%A7%E4%BA%8Eblock-min-sz"><span class="nav-number">5.</span> <span class="nav-text">文件长度大于block_min_sz</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : '9c318209e8e23cf662b9cfc58ead93f6',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>

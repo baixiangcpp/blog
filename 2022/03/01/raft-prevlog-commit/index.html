@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="经常看到网上对Raft 论文 5.4.2 一节的讨论，这里记录一下我对这个问题的理解。 论文开头是这么描述的:  A leader knows that an entry from its current term is committed once that entry is stored on a majority of the servers. If a leader crashes bef">
+<meta property="og:type" content="article">
+<meta property="og:title" content="为什么Raft不能“直接”提交之前任期的日志?">
+<meta property="og:url" content="https://ilovecpp.com/2022/03/01/raft-prevlog-commit/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="经常看到网上对Raft 论文 5.4.2 一节的讨论，这里记录一下我对这个问题的理解。 论文开头是这么描述的:  A leader knows that an entry from its current term is committed once that entry is stored on a majority of the servers. If a leader crashes bef">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/raft-paper/raft-8.png">
+<meta property="article:published_time" content="2022-02-28T19:11:22.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.840Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="分布式系统">
+<meta property="article:tag" content="分布式存储">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/raft-paper/raft-8.png">
+
+<link rel="canonical" href="https://ilovecpp.com/2022/03/01/raft-prevlog-commit/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>为什么Raft不能“直接”提交之前任期的日志? | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2022/03/01/raft-prevlog-commit/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          为什么Raft不能“直接”提交之前任期的日志?
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2022-03-01 03:11:22" itemprop="dateCreated datePublished" datetime="2022-03-01T03:11:22+08:00">2022-03-01</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/" itemprop="url" rel="index"><span itemprop="name">分布式系统</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>经常看到网上对<a target="_blank" rel="noopener" href="http://www.ilovecpp.com/2022/02/25/raft-paper/#5-4-2-%E6%8F%90%E4%BA%A4%E4%B9%8B%E5%89%8D%E4%BB%BB%E6%9C%9F%E5%86%85%E7%9A%84%E6%97%A5%E5%BF%97%E6%9D%A1%E7%9B%AE">Raft 论文 5.4.2 一节</a>的讨论，这里记录一下我对这个问题的理解。</p>
+<p>论文开头是这么描述的:</p>
+<blockquote>
+<p>A leader knows that an entry from its current term is committed once that entry is stored on a majority of the servers. If a leader crashes before committing an entry, future leaders will attempt to finish replicating the entry. However, a leader cannot immediately conclude that an entry from a previous term is committed once it is stored on a majority of servers.</p>
+</blockquote>
+<p>后续的领导人不能判断之前任期里的日志在被复制到多数派的服务器后，就一定被马上被提交了。换句话说，也就是说领导人并不知道之前的任期的日志是否已经被提交，即使这条日志已经被复制到了多数派的服务器上。根据 Raft 协议，这条日志是不能被直接提交的。</p>
+<p>在探究为什么之前，我们先假设:如果后续的领导人在当选后，发现之前任期的一条日志已经被复制到多数派的服务器上，直接提交这些日志会发生什么？<span id="more"></span></p>
+<p>论文中的 Figure 8，描述了这样的场景:</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/raft-paper/raft-8.png" alt="Figure 8"></p>
+<ul>
+<li>(a) S1 是 Term 2 的 Leader，复制了一条日志(Term:2,Index:2)到 S2</li>
+<li>(b) S1 crash，S5 获得 S3、S4 和 S5 的投票成为 Leader，然后写了一条日志(Term:3,Index:2)到本地</li>
+<li>(c) S5 crash，S1 复活并且重新当选 Leader(Term 4)，开始继续复制日志(Term:2,Index:2)到多数派服务器上(S1，S2，S3)上。然后又新写入一条日志(Term:4,Index:3)到本地</li>
+</ul>
+<p>日志(Term:2,Index:2)已经完成了多数派的复制，如果当前的 Leader S1 (Term 4)直接提交了这条日志。</p>
+<ul>
+<li>(d) S1 crash, S5 当选 Leader (Term &gt;&#x3D; 5, 选票可以来自 S2，S3，S4，S5) ，并将日志(Term:3,Index:2)复制到其他所有节点并成功提交</li>
+</ul>
+<p>日志(Term:2,Index:2)虽然已经提交，却因为 conflict 被 truncate 掉了。详情见论文 Figure 2 日志复制 RPC 的描述:If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it。</p>
+<p>于是 Index &#x3D; 2 的日志就被提交了两次，一次是 Term &#x3D; 2 ，一次是 Term &#x3D; 3。对于 Raft 状态机来说这是绝对不允许存在的。</p>
+<ul>
+<li>(e) 如果(C)中，S1 写入日志(Term:4,Index:3)后，没有马上 crash，这条日志被成功复制到多数派的节点(S1,S2,S3)，S5 就不可能当选 Leader 了。就不存在上上述的问题。</li>
+</ul>
+<p>但是在分布式系统中，网络不可靠是一个大概率的问题，情况(d) 虽然发生的概率不高，但是只要系统运行的时间足够长，这种情况总是可以出现。</p>
+<p>为了处理 (d) 这种情况，Raft 规定:</p>
+<blockquote>
+<p>Raft never commits log entries from previous terms by counting replicas. Only log entries from the leader’s current term are committed by counting replicas; once an entry from the current term has been committed in this way,then all prior entries are committed indirectly because of the Log Matching Property</p>
+</blockquote>
+<p>Raft 永远不会通过计算副本数目的方式去提交一个之前任期内的日志条目。只有领导人当前任期里的日志条目通过计算副本数目可以被提交；一旦当前任期的日志条目以这种方式被提交，那么由于日志匹配特性，之前的日志条目也都会被间接的提交。</p>
+<p>关于日志匹配性说明在论文的 Figure 3 和 5.3 节有说明:</p>
+<blockquote>
+<p>If two entries in different logs have the same index and term, then they store the same command.</p>
+</blockquote>
+<blockquote>
+<p>If two entries in different logs have the same index and term, then the logs are identical in all preceding entries.</p>
+</blockquote>
+<p>加了这样的约束之后，重新回到 (C) ,日志(Term:2,Index:2)到多数派服务器上(S1，S2，S3)上后，虽然已经完成了多数派复制，但是当前的 Leader Term &#x3D; 4，不能提交日志(Term:2,Index:2)。</p>
+<p>再看 (d) , S1 crash 后，S5 当选 Leader (Term &gt;&#x3D; 5), 日志(Term:3,Index:2)复制到其他所有节点, 根据刚才 Raft 的约束，此时该条日志也是不被允许提交的。只有当 S5 接受到客户端新的命令之后，新的当前任期的日志被提交之后，Index &#x3D; 2 的日志才能被顺带着提交。</p>
+<p>于是新的问题出现了，假如 S5 迟迟等不来客户端新的写命令,Index &#x3D; 2 的日志就一直不会提交，自然这条日志也就不能被应用(Apply)到状态机，恰好这个时候，S5 又收到一条来自客户端的查询请求，并且这个请求依赖于 Index &#x3D; 2 的日志的应用，S5 只能返回一条旧数据。又一次违反了一致性的要求。</p>
+<p>Raft 引入 no-op 日志的概念(该日志只包含 Term 和 Index，数据为空)来解决这个问题。Leader 当选的时候，会立即写入一条 no-op 日志。当这条日志被写入多数派节点后，no-op 日志被提交，前面的日志也会被顺带着提交了。</p>
+<p>至此大功告成，任他风吹雨打。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/" rel="tag"># 分布式系统</a>
+              <a href="/tags/%E5%88%86%E5%B8%83%E5%BC%8F%E5%AD%98%E5%82%A8/" rel="tag"># 分布式存储</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2022/02/25/raft-paper/" rel="prev" title="寻找一种易于理解的一致性算法">
+      <i class="fa fa-chevron-left"></i> 寻找一种易于理解的一致性算法
+    </a></div>
+      <div class="post-nav-item"></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : '4c8ef77e8e97f51f4c35c01ac6ddc49f',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="标题碰瓷自scott meyers大师的Effective系列，他们是每个C++程序员都应该拜读的神作(有网友打趣到:”c++程序员可以分成两类，读过effective c++的和没读过的”)。 epoll顾名思义就是Event Poll，是Linux上一个非常”屌炸天”的多路复用机制(关于多路复用的概念可以参考知乎网友的解释:https:&#x2F;&#x2F;www.zhihu.com&#x2F;question&#x2F;3216">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Effective epoll">
+<meta property="og:url" content="https://ilovecpp.com/2019/01/20/effective-epoll/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="标题碰瓷自scott meyers大师的Effective系列，他们是每个C++程序员都应该拜读的神作(有网友打趣到:”c++程序员可以分成两类，读过effective c++的和没读过的”)。 epoll顾名思义就是Event Poll，是Linux上一个非常”屌炸天”的多路复用机制(关于多路复用的概念可以参考知乎网友的解释:https:&#x2F;&#x2F;www.zhihu.com&#x2F;question&#x2F;3216">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/effective-epoll/time.png">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/effective-epoll/starvation.gif">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/effective-epoll/fd.png">
+<meta property="article:published_time" content="2019-01-20T15:30:35.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.839Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="linux">
+<meta property="article:tag" content="网络">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/effective-epoll/time.png">
+
+<link rel="canonical" href="https://ilovecpp.com/2019/01/20/effective-epoll/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Effective epoll | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2019/01/20/effective-epoll/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Effective epoll
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-01-20 23:30:35" itemprop="dateCreated datePublished" datetime="2019-01-20T23:30:35+08:00">2019-01-20</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/linux/" itemprop="url" rel="index"><span itemprop="name">linux</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>标题碰瓷自scott meyers大师的Effective系列，他们是每个C++程序员都应该拜读的神作(有网友打趣到:”c++程序员可以分成两类，读过effective c++的和没读过的”)。</p>
+<p>epoll顾名思义就是Event Poll，是Linux上一个非常”屌炸天”的多路复用机制(关于多路复用的概念可以参考知乎网友的解释:<a target="_blank" rel="noopener" href="https://www.zhihu.com/question/32163005/answer/55772739">https://www.zhihu.com/question/32163005/answer/55772739</a>)。</p>
+<p>epoll出现之前Linux上已经有2个多路复用机制:select和poll，但是后两者在epoll面前显得比较鸡肋。</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/effective-epoll/time.png" alt="time"></p>
+<p>这是《THE LINUX PROGRAMMING INTERFACE》的关于这3个多路复用效率的对比,当需要监听的I&#x2F;O事件数量比较大的时候，epoll的优势尤为明显。其原因主要体现在两个方面:</p>
+<ul>
+<li>每次监听I&#x2F;O事件的时候，不需要往内核传送大量的文件描述符集，epoll的兴趣列表(interest list)由内核维护的红黑树负责。</li>
+<li>epoll只会返回I&#x2F;O就绪的文件描述符列表(ready list),因此不需要遍历所有的文件集去找发生的事件。（这个其实微不足道，甚至可以忽略，许多博客都喜欢把这个归纳为主要原因，上图的数据，不包括这个时间）</li>
+</ul>
+<span id="more"></span>
+
+<h1 id="接口函数"><a href="#接口函数" class="headerlink" title="接口函数"></a>接口函数</h1><p>与epoll相关的有3个系统调用,分别是：</p>
+<table>
+<thead>
+<tr>
+<th align="left">API</th>
+<th align="left">作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">epoll_create</td>
+<td align="left">创建一个epoll实例，并且返回一个文件描述符来表示这个实例。</td>
+</tr>
+<tr>
+<td align="left">epoll_ctl</td>
+<td align="left">添加，删除，修改epoll实例的兴趣列表。</td>
+</tr>
+<tr>
+<td align="left">epoll_wait</td>
+<td align="left">等待监听的I&#x2F;O事件发生，会阻塞调用的线程，直到监控的事件来临。</td>
+</tr>
+</tbody></table>
+<p>epoll同其他的如select、poll等I&#x2F;O多路复用模型相比，既支持<code>水平触发</code>也支持<code>边缘触发</code>，而后两者只支持水平触发。除非特别指定(设置标志EVENTET),默认情况下epoll提供的是水平触发通知。通常使用epoll的步骤为:</p>
+<ol>
+<li>使用epoll_create初始化，一个epoll实例</li>
+<li>将需要监控I&#x2F;O事件的文件描述符，加入到epoll实例的兴趣列表上去</li>
+<li>阻塞当前线程直到I&#x2F;O事件发生(或者超时)，返回结果</li>
+</ol>
+<p>一个推荐的epoll编程范式是这样的：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">epollDemo</span><span class="params">()</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="comment">/*</span></span><br><span class="line"><span class="comment">     * Set up listening socket, &#x27;listen_sock&#x27;</span></span><br><span class="line"><span class="comment">     * (socket(),bind(), listen())</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line"></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">epoll_event</span> <span class="title">ev</span>, <span class="title">events</span>[<span class="title">MAX_EVENTS</span>];</span></span><br><span class="line">    <span class="type">int</span> listen_sock,nfds, epollfd,n;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//创建了epoll实例epollfd</span></span><br><span class="line">    epollfd = epoll_create1(MAX_EVENTS);</span><br><span class="line">    <span class="keyword">if</span> (epollfd == <span class="number">-1</span>)</span><br><span class="line">        error_exit();</span><br><span class="line"></span><br><span class="line">    <span class="comment">//监听的listen_sock加入到epollfd的兴趣列表</span></span><br><span class="line">    ev.events = EPOLLIN;</span><br><span class="line">    ev.data.fd = listen_sock;</span><br><span class="line">    <span class="keyword">if</span> (epoll_ctl(epollfd, EPOLL_CTL_ADD, listen_sock, &amp;ev) == <span class="number">-1</span>)</span><br><span class="line">        error_exit();</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (;;)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="comment">//当前的线程会阻塞，直到兴趣列表上发生了监听的事件</span></span><br><span class="line">        nfds = epoll_wait(epollfd, events, MAX_EVENTS, <span class="number">-1</span>);</span><br><span class="line">            error_exit();</span><br><span class="line"></span><br><span class="line">        <span class="comment">//会遍历所有的就绪事件</span></span><br><span class="line">        <span class="keyword">for</span> (n = <span class="number">0</span>; n &lt; nfds; ++n)</span><br><span class="line">        &#123;</span><br><span class="line">            <span class="comment">//如果是listen_sock上的事件，表示有客户端连接了</span></span><br><span class="line">            <span class="comment">//就先accept这个连接，并将对应的conn_sock加入的epollfd的兴趣列表上</span></span><br><span class="line">            <span class="comment">//后续的epoll_wait就可以监听conn_sock了。</span></span><br><span class="line">            <span class="keyword">if</span> (events[n].data.fd == listen_sock)</span><br><span class="line">            &#123;</span><br><span class="line">                <span class="class"><span class="keyword">struct</span> <span class="title">sockaddr_in</span> <span class="title">localaddr</span> =</span> &#123;<span class="number">0</span>&#125;；</span><br><span class="line">                <span class="type">socklen_t</span> addrlen = <span class="keyword">sizeof</span>(localaddr);</span><br><span class="line">                <span class="type">int</span> conn_sock = accept(listen_sock,(<span class="keyword">struct</span> sockaddr *)&amp;localaddr, &amp;addrlen);</span><br><span class="line">                <span class="keyword">if</span>(conn_sock)</span><br><span class="line">                    error_exit();</span><br><span class="line">                setnonblocking(conn_sock);</span><br><span class="line">                ev.events = EPOLLIN;</span><br><span class="line">                ev.data.fd = conn_sock;</span><br><span class="line">                <span class="keyword">if</span> (epoll_ctl(epollfd, EPOLL_CTL_ADD, conn_sock,&amp;ev) == <span class="number">-1</span>)</span><br><span class="line">                    error_exit();</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">else</span></span><br><span class="line">            &#123;</span><br><span class="line">                <span class="comment">// 对就绪的I/O事件，进行处理</span></span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>为了节省篇幅，上述代码省略了创建listen_sock的过程，也没有考虑epoll_wait被信号打断的情况，仅为了演示epoll的使用。</p>
+<h1 id="水平触发与边缘触发"><a href="#水平触发与边缘触发" class="headerlink" title="水平触发与边缘触发"></a>水平触发与边缘触发</h1><p>通俗点来讲，关于这两者的区别是：</p>
+<ul>
+<li>水平触发模式下，只要监控的文件描述符可以非阻塞地执行I&#x2F;O，epoll_wait都会认为它已经就绪，触发通知。</li>
+<li>边缘触发模式下，如果监控的文件描述符上发生了I&#x2F;O事件，它只会提示一次，直到下次再有新的I&#x2F;O活动之前都不会再通知了，无论文件描述符上是否还能非阻塞地执行I&#x2F;O。</li>
+</ul>
+<p>对于水平触发，每次文件描述符就绪的时候，没有必要每次尽可能多的执行I&#x2F;O操作，因为只要是I&#x2F;O没有执行完，后续(下一轮epoll_wait)该文件描述符仍会是就绪状态。而对于边缘触发模式，每次文件描述符就绪的时候，我们应该尽可能多的执行I&#x2F;O，直到该文件描述符上的下一个I&#x2F;O事件发生之前，我们都不会就收到通知了。</p>
+<p>要尽可能多的执行I&#x2F;O，我们需要使用循环处理,但是如果文件描述符是阻塞的，当没有更多的I&#x2F;O可以执行的时候，I&#x2F;O操作（read，write等）就会阻塞。因此，边缘触发模式下，epoll监听的文件描述符都需要被设置成非阻塞的。</p>
+<p>关于水平触发和边缘触发哪个更加高效的问题，部分网友可能会有一个想当然的错觉，会以为边缘触发更快，其实这是没有依据的。还是要考虑使用场景的。关于这个问题，知乎的网友们有过讨论：<a target="_blank" rel="noopener" href="https://www.zhihu.com/question/20502870">https://www.zhihu.com/question/20502870</a>。这里我摘了一段<a target="_blank" rel="noopener" href="https://github.com/brpc/brpc">brpc</a>作者的观点:</p>
+<blockquote>
+<p>在eventloop类型(包括各类fiber&#x2F;coroutine)的程序中, 处理逻辑和epoll_wait都在一个线程, ET相比LT没有太大的差别. 反而由于LT醒的更频繁, 可能时效性更好些. 在老式的多线程RPC实现中, 消息的读取分割和epoll_wait在同一个线程中运行, 类似上面的原因, ET和LT的区别不大.但在更高并发的RPC实现中, 为了对大消息的反序列化也可以并行, 消息的读取和分割可能运行和epoll_wait不同的线程中, 这时ET是必须的, 否则在读完数据前, epoll_wait会不停地无谓醒来.</p>
+</blockquote>
+<h1 id="饥饿现象"><a href="#饥饿现象" class="headerlink" title="饥饿现象"></a>饥饿现象</h1><p>前面提到对于边缘触发，每次有文件描述符就绪的时候，要采用非阻塞的方式尽可能多的进行I&#x2F;O。假设某一个就绪的文件描述符上，存在着大量的输入(例如客户端有一个死循环不断地网socket里边写数据)，那么此时其他的文件描述符就存在饥饿(starvation)的风险。</p>
+<p>当然这并不是epoll导致的。</p>
+<p>我写了几段程序，模拟了出了饥饿现象。一开始，我打算偷懒使用FIFO来模拟，结果发现速度很慢，并不能成功的模拟出来。于是还是老老实实写socket。服务端采用边缘触发通知，每次将客户端发来的数据回显到终端上，代码篇幅有点长，贴到了github上：<a target="_blank" rel="noopener" href="https://gist.github.com/baixiangcpp/874897d09a4eb4f8b3fbdc93b1e2869c">https://gist.github.com/baixiangcpp/874897d09a4eb4f8b3fbdc93b1e2869c</a>。</p>
+<p>客户端的逻辑比较简单，就是连接服务端，然后在死循环中不断给服务端发送数据，为了方便采用了python编码。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#client.py</span></span><br><span class="line"><span class="keyword">import</span> socket</span><br><span class="line">sock = socket.socket()</span><br><span class="line">sock.connect((<span class="string">&quot;192.168.0.188&quot;</span>,<span class="number">9999</span>))</span><br><span class="line"><span class="keyword">while</span> <span class="literal">True</span> :</span><br><span class="line">    sock.send(<span class="string">&quot;==========================================&quot;</span>)</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#client.py</span></span><br><span class="line"><span class="keyword">import</span> socket</span><br><span class="line">sock = socket.socket()</span><br><span class="line">sock.connect((<span class="string">&quot;192.168.0.188&quot;</span>,<span class="number">9999</span>))</span><br><span class="line"><span class="keyword">while</span> <span class="literal">True</span> :</span><br><span class="line">    sock.send(<span class="string">&quot;++++++++++++++++++++++++++++++++++++++++++&quot;</span>)</span><br></pre></td></tr></table></figure>
+
+<p>如下图所示，我开了3个终端，演示了饥饿现象：</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/effective-epoll/starvation.gif" alt="starvation"></p>
+<p>上边的终端，也就是是服务端程序，负责监听并打印请求的数据，左边的终端不停的往服务端上发送符号<code>=</code>，右边的终端则不停发送符号<code>+</code>。但是左边的client.py先被执行，于是服务端就一直忙于读取来自左边的数据，即使右边的client2.py虽然也跟上并不断地发送数据，但也无济于事。只要不关闭左边的进程，服务端就几乎没机会处理来自右边的数据。于是产生饥饿现象。</p>
+<p>《Linux系统编程手册》上边推荐了一种饥饿现象的解决方案，让应用程序维护了一个列表，列表中存放着就绪的文件描述符。通过下面的方式处理。</p>
+<ol>
+<li>每一轮epoll_wait之前，先判断列表里有没有就绪的文件描述符，如果有就将epoll_wait的超时时间调至很小或者0。</li>
+<li>epoll_wait返回后，如果有新的文件描述符就绪，就将其插入到列表中。</li>
+<li>对列表上的文件描述符进行一定限度的I&#x2F;O操作(具体实现视情况而异，但是要轮转调度，不要每次都从列表头处理)，处理不完的I&#x2F;O仍在列表上，等到下一轮epoll_wait返回后处理(步骤1可知，epoll_wait会很快超时)。</li>
+<li>对于I&#x2F;O处理完成的文件符，就可以从列表上移除了。</li>
+</ol>
+<h1 id="用epoll处理定时器"><a href="#用epoll处理定时器" class="headerlink" title="用epoll处理定时器"></a>用epoll处理定时器</h1><p>前几天的一篇博客<a target="_blank" rel="noopener" href="http://www.ilovecpp.com/2019/01/16/timer/">《Linux下定时器的设计与实现》</a>介绍了使用epoll处理定时器的思路，这里不多赘述了。</p>
+<h1 id="用epoll处理signal"><a href="#用epoll处理signal" class="headerlink" title="用epoll处理signal"></a>用epoll处理signal</h1><p>UNIX设计哲学”In UNIX, everything is a file”(其实<a target="_blank" rel="noopener" href="https://yarchive.net/comp/linux/everything_is_file.html">“Everything is a file descriptor”</a>更加合适),显然signal不在这个everything之列。在多线程程序里处理signal本身就是一个很麻烦的事,如果在遇上eventloop就更加不好处理了。</p>
+<p>如果能将signal转化为对一个文件描述符的读写，那么信号处理就方便多了。不少的开源程序(如libevent,libev等)采取的做法是:</p>
+<ol>
+<li>初始化一个socketpair或者pipe (一边作为write端，一边作为read端)，将其中的read端添加到epoll里</li>
+<li>在signal handler中，将信号值写入socketpair或者pipe 的write一端</li>
+<li>signal到来时，read端文件描述符上的read事件被触发,epoll_wait返回</li>
+<li>处理signal</li>
+</ol>
+<p>这种做法被叫做”Self-Pipe Trick”。</p>
+<p>在Linux 2.6.27之后，信号处理多了一种选择:<a target="_blank" rel="noopener" href="http://man7.org/linux/man-pages/man2/signalfd.2.html">signalfd</a>。signalfd会生成一个特殊的文件描述符，发往程序的信号都能从这个文件描述符读取到。有了signalfd，用epoll处理信号就容易多了，muduo网络库正是采取的这种做法。</p>
+<h1 id="epoll的设计缺陷"><a href="#epoll的设计缺陷" class="headerlink" title="epoll的设计缺陷?"></a>epoll的设计缺陷?</h1><p>再介绍这个设计缺陷之前，我们最好先搞清楚<code>文件描述(file  description)</code>和<code>文件描述符(file descriptor)</code>之间的区别。我这里找来了《THE LINUX PROGRAMMING INTERFACE》的一张插图。</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/effective-epoll/fd.png" alt="fd"></p>
+<p>从图上可以发现文件描述符是进程级的概念，是一个int型的数字，通过文件指针指向内核维护的打开文件表，这个表里的内容是文件描述。同一进程内可能有几个文件描述符指向内核里的同一个文件描述(通过dup函数、文件重定向、fork()等都可以实现)。</p>
+<p>只有当所有的文件描述符解除对一个文件描述的引用是，这个文件描述才会被内核清理掉。知道了这个概念之后，现在再来介绍这个设计缺陷，如果你仔细阅读过epoll的manual page，你就会发现其中这有一条FAQ。</p>
+<blockquote>
+<p>Will closing a file descriptor cause it to be removed from all epoll sets automatically?</p>
+<p>Yes,  but  be aware of the following point.  A file descriptor is a reference to an open file description (see open(2)).  Whenever a descriptor is duplicated via dup(2), dup2(2), fcntl(2) F_DUPFD, or fork(2), a new file descriptor referring to the same open file description is created.  An  open  file  description      continues  to  exist  until  all  file  descriptors referring to it have been closed.  A file descriptor is removed from an epoll set only after all the file descriptors referring to the underlying open file description have been closed (or  before  if  the  descriptor  is  explicitly  removed  using  epoll_ctl(2) EPOLL_CTL_DEL).   This  means that even after a file descriptor that is part of an epoll set has been closed, events may be reported for that file descriptor if other file descriptors referring to the same underlying file description remain open.</p>
+</blockquote>
+<p>总结起来就是一句话，epoll接口操作的是文件描述符，而epoll的内核维护的是文件描述。</p>
+<p>虽然手册没有直说，但这确实应该算作是一个设计缺陷。有兴趣的话可以阅读一个国外的网友关于这个设计缺陷的观点:<a target="_blank" rel="noopener" href="https://idea.popcount.org/2017-03-20-epoll-is-fundamentally-broken-22/">https://idea.popcount.org/2017-03-20-epoll-is-fundamentally-broken-22/</a>。</p>
+<p>重现这个缺陷也容易（这里省略了部分的错误处理代码）:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//创建服务端监听socket</span></span><br><span class="line"><span class="type">int</span> <span class="title function_">initServSocket</span><span class="params">(<span class="type">int</span> port)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">sockaddr_in</span> <span class="title">sin</span>;</span></span><br><span class="line">    <span class="type">int</span> servsock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, <span class="number">0</span>);</span><br><span class="line">    bzero(&amp;<span class="built_in">sin</span>, <span class="keyword">sizeof</span>(<span class="built_in">sin</span>));</span><br><span class="line">    <span class="built_in">sin</span>.sin_family = AF_INET;</span><br><span class="line">    <span class="built_in">sin</span>.sin_addr.s_addr = INADDR_ANY;</span><br><span class="line">    <span class="built_in">sin</span>.sin_port = htons(port);</span><br><span class="line">    bind(servsock, (<span class="keyword">struct</span> sockaddr *)&amp;<span class="built_in">sin</span>, <span class="keyword">sizeof</span>(<span class="built_in">sin</span>)) ;</span><br><span class="line">    listen(servsock, SOMAXCONN);</span><br><span class="line">    <span class="keyword">return</span> servsock;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">()</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="type">int</span> rfd = initServSocket(<span class="number">9999</span>);</span><br><span class="line">    <span class="type">int</span> epfd = epoll_create(<span class="number">1</span>);</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">epoll_event</span> <span class="title">ev</span> =</span> &#123;.events = EPOLLIN, .data.fd = rfd&#125;;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//将listen socket加入到epoll中监听EPOLLIN事件</span></span><br><span class="line">    epoll_ctl(epfd, EPOLL_CTL_ADD, rfd, &amp;ev);</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    <span class="comment">//注意这里：</span></span><br><span class="line">    <span class="comment">//先用dup() 复制rfd描述符，此时 rfd ，rfd2都指向同一个文件描述</span></span><br><span class="line">    <span class="type">int</span> rfd2 = dup(rfd);</span><br><span class="line"></span><br><span class="line">    <span class="comment">//此时关闭rfd，此时上图所示的文件描述符表中的rfd对应的行会被释放</span></span><br><span class="line">    <span class="comment">//但是rfd2仍然指向了之前的文件描述，因此后续的listen socket有事件，epoll仍会检测到</span></span><br><span class="line">    close(rfd);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">while</span> (<span class="number">1</span>)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="comment">//当服务端listen socket收到连接的时候，epoll_wait返回</span></span><br><span class="line">        <span class="type">int</span> r = epoll_wait(epfd, &amp;ev, <span class="number">10</span>, <span class="number">-1</span>);</span><br><span class="line">        <span class="keyword">if</span> (r == <span class="number">0</span>)</span><br><span class="line">        &#123;</span><br><span class="line">            <span class="built_in">printf</span>(<span class="string">&quot;epoll_wait() finished with no events... okay...\n&quot;</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">else</span></span><br><span class="line">        &#123;</span><br><span class="line">            <span class="built_in">printf</span>(<span class="string">&quot;epoll_wait() got Event %s ! on fd %d! wait...\n&quot;</span>,event_to_string(ev.events), ev.data.fd);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">//发生客户端连接的事件后，从epoll中移除listen socket 不再监听</span></span><br><span class="line"></span><br><span class="line">        r = epoll_ctl(epfd, EPOLL_CTL_DEL, rfd, <span class="literal">NULL</span>);</span><br><span class="line">        <span class="keyword">if</span> (r != <span class="number">0</span>)</span><br><span class="line">        &#123;</span><br><span class="line">            <span class="comment">//会发生错误:Bad file descriptor</span></span><br><span class="line">            <span class="comment">//因为rfd，已经被关闭，不是一个有效的文件描述符</span></span><br><span class="line">            perror(<span class="string">&quot;epoll_ctl(EPOLL_CTL_DEL, rfd)&quot;</span>);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        r = epoll_ctl(epfd, EPOLL_CTL_DEL, rfd2, <span class="literal">NULL</span>);</span><br><span class="line">        <span class="keyword">if</span> (r != <span class="number">0</span>)</span><br><span class="line">        &#123;</span><br><span class="line">            <span class="comment">//会发生错误：No such file or directory</span></span><br><span class="line">            <span class="comment">//因为之前向epoll 添加监视的时候，没有使用rfd2文件描述符</span></span><br><span class="line">            <span class="comment">//因此找不到这个文件描述符</span></span><br><span class="line">            perror(<span class="string">&quot;epoll_ctl(EPOLL_CTL_DEL, rfd2)&quot;</span>);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>运行这段代码的同时，另开一个终端用nc连接：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nc 127.0.0.1 9999</span><br></pre></td></tr></table></figure>
+
+<p>此时就会发现，server终端的屏幕上会不停的打印出移除文件描述符出错的消息：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">epoll_ctl(EPOLL_CTL_DEL, rfd): Bad file descriptor</span><br><span class="line">epoll_ctl(EPOLL_CTL_DEL, rfd2): No such file or directory</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>这时我们才发现，listen socket已经无法从epoll移除了，但是它对应的文件描述还在不断的产生通知，不移除的话epoll fd就无法使用了，整个epoll陷入了一个死循环。要是出现了这样的问题，没有其他的办法。只能把整个 epoll fd 释放掉，重新创建。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>更多的细节可以参考<a target="_blank" rel="noopener" href="http://man7.org/linux/man-pages/man7/epoll.7.html">epoll(7)</a>。此外要想真正的用好epoll，至少得阅读一个成熟的开源的网络库。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/linux/" rel="tag"># linux</a>
+              <a href="/tags/%E7%BD%91%E7%BB%9C/" rel="tag"># 网络</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2019/01/16/timer/" rel="prev" title="Linux下定时器的设计与实现">
+      <i class="fa fa-chevron-left"></i> Linux下定时器的设计与实现
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2019/01/29/smart-point/" rel="next" title="都9102年了,你居然还没用上智能指针">
+      都9102年了,你居然还没用上智能指针 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%8E%A5%E5%8F%A3%E5%87%BD%E6%95%B0"><span class="nav-number">1.</span> <span class="nav-text">接口函数</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%B0%B4%E5%B9%B3%E8%A7%A6%E5%8F%91%E4%B8%8E%E8%BE%B9%E7%BC%98%E8%A7%A6%E5%8F%91"><span class="nav-number">2.</span> <span class="nav-text">水平触发与边缘触发</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E9%A5%A5%E9%A5%BF%E7%8E%B0%E8%B1%A1"><span class="nav-number">3.</span> <span class="nav-text">饥饿现象</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E7%94%A8epoll%E5%A4%84%E7%90%86%E5%AE%9A%E6%97%B6%E5%99%A8"><span class="nav-number">4.</span> <span class="nav-text">用epoll处理定时器</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E7%94%A8epoll%E5%A4%84%E7%90%86signal"><span class="nav-number">5.</span> <span class="nav-text">用epoll处理signal</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#epoll%E7%9A%84%E8%AE%BE%E8%AE%A1%E7%BC%BA%E9%99%B7"><span class="nav-number">6.</span> <span class="nav-text">epoll的设计缺陷?</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">7.</span> <span class="nav-text">总结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : 'a984848555bd34980d6f4cba3415e2a5',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>

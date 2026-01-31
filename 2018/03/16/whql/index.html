@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="whql认证是什么whql(Windows Hardware Quality Labs)认证是微软针对第三方的驱动程序进行的一系列测试，旨在确保驱动程序的兼容性。windows 10 1607以后版本的操作系统版本安装的驱动程序都需要先通过whql认证。 注册公司开发者账号在注册微软开发者账号前，首先确保先拥有一个EV代码签名的证书。这个证书需要向微软授信的机构购买。网上的介绍都是去https:&#x2F;">
+<meta property="og:type" content="article">
+<meta property="og:title" content="win10驱动通过微软whql认证经验">
+<meta property="og:url" content="https://ilovecpp.com/2018/03/16/whql/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="whql认证是什么whql(Windows Hardware Quality Labs)认证是微软针对第三方的驱动程序进行的一系列测试，旨在确保驱动程序的兼容性。windows 10 1607以后版本的操作系统版本安装的驱动程序都需要先通过whql认证。 注册公司开发者账号在注册微软开发者账号前，首先确保先拥有一个EV代码签名的证书。这个证书需要向微软授信的机构购买。网上的介绍都是去https:&#x2F;">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/whql/setup.png">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/whql/clientsetup.png">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/whql/clientsetup2.png">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/whql/pool.png">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/whql/start.png">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/whql/selection.png">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/whql/state.png">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/whql/test.png">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/whql/hlkx.png">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/whql/package.png">
+<meta property="article:published_time" content="2018-03-16T11:33:32.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.841Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="whql">
+<meta property="article:tag" content="驱动">
+<meta property="article:tag" content="windows">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://oss.ilovecpp.com/blog/whql/setup.png">
+
+<link rel="canonical" href="https://ilovecpp.com/2018/03/16/whql/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>win10驱动通过微软whql认证经验 | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2018/03/16/whql/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          win10驱动通过微软whql认证经验
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2018-03-16 19:33:32" itemprop="dateCreated datePublished" datetime="2018-03-16T19:33:32+08:00">2018-03-16</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/%E6%9D%82%E8%B0%88/" itemprop="url" rel="index"><span itemprop="name">杂谈</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h2 id="whql认证是什么"><a href="#whql认证是什么" class="headerlink" title="whql认证是什么"></a>whql认证是什么</h2><p>whql(Windows Hardware Quality Labs)认证是微软针对第三方的驱动程序进行的一系列测试，旨在确保驱动程序的兼容性。windows 10 1607以后版本的操作系统版本安装的驱动程序都需要先通过whql认证。</p>
+<h2 id="注册公司开发者账号"><a href="#注册公司开发者账号" class="headerlink" title="注册公司开发者账号"></a>注册公司开发者账号</h2><p>在注册微软开发者账号前，首先确保先拥有一个EV代码签名的证书。这个证书需要向微软授信的机构购买。<br>网上的介绍都是去<a target="_blank" rel="noopener" href="https://sysdev.microsoft.com/">https://sysdev.microsoft.com</a> 注册开发者，并进行HLK测试，实际上现在最新的开发者中心已经是这里了:<a target="_blank" rel="noopener" href="https://developer.microsoft.com/">https://developer.microsoft.com/</a>。注册过程不再赘述。<span id="more"></span></p>
+<p>注册完账号后，微软会对账户信息进行审核，审核的方式是微软会在网页上提供一个bin文件，需要我们下载下来对其添加EV代码的数字签名，上传给微软验证。只有数字证书里边的公司名与我们注册的开发者账号能够对应得上的话，才能注册成功使用账号。</p>
+<h2 id="准备测试设备"><a href="#准备测试设备" class="headerlink" title="准备测试设备"></a>准备测试设备</h2><p>至少需要两个系统（<strong>必须为英文操作系统</strong>）：</p>
+<ul>
+<li><strong>测试服务器</strong> 一个windows server版本的系统，推荐使用windows server 2012 ,可以是虚拟机。（需要注意的是远程会话的时候可能读不到UKEY里的EV数字证书，需要直接接显示器操作，我因为证书找不到的问题浪费了不少的时间）。</li>
+<li><strong>测试系统</strong> 需要windows 10 版本的操作系统，不能是任何的虚拟机，必须是<code>物理机</code>。并且安装好要测试的驱动程序（1607以后的windows 10 可以打开测试模式安装驱动）。</li>
+</ul>
+<p>另外这两个系统需要加入在一个内网并且加入同一个工作组。如果不在同一网段的话，可能安装完HLK client后连接不上HLk server。当时我的环境是公司的两个子网(192.168.1.<em>,192.168.2.</em>)虽然互通，但是就是连不上server端。加入了同一网段后，如果未把测试服务器和测试系统加入同一工作组，则会导致HLK测试的时候找不到测试的项。</p>
+<h2 id="安装测试服务器"><a href="#安装测试服务器" class="headerlink" title="安装测试服务器"></a>安装测试服务器</h2><p> Windows Hardware Lab Kit (Windows HLK) 是一套进行whql认证的测试框架。HLK套件仅用于windows 10，如果要测试windows 10 之前的操作系统，需要使用HCK套件(Hardware Certification Kit)。<br>HCK安装包的下载地址:<a target="_blank" rel="noopener" href="https://docs.microsoft.com/en-us/windows-hardware/test/hlk/windows-hardware-lab-kit">https://docs.microsoft.com/en-us/windows-hardware/test/hlk/windows-hardware-lab-kit</a>。安装完选择Controller + Studio 一路点击Next即可完成测试服务器的安装：</p>
+<p><img src="http://oss.ilovecpp.com/blog/whql/setup.png" alt="setup"></p>
+<h2 id="安装测试系统"><a href="#安装测试系统" class="headerlink" title="安装测试系统"></a>安装测试系统</h2><p>测试系统的安装不需要额外的去下载安装包了，应该从安装完成的服务端获取。地址为：</p>
+<blockquote>
+<p>\\&lt;ControllerName&gt;\HLKInstall\Client\Setup.cmd</p>
+</blockquote>
+<p>例如我们的服务器地址是192.168.2.239：<br><img src="http://oss.ilovecpp.com/blog/whql/clientsetup.png" alt="setup"></p>
+<p>双击setup.cmd，即可出现安装界面： </p>
+<p><img src="http://oss.ilovecpp.com/blog/whql/clientsetup2.png" alt="setup"></p>
+<p>也是一路点击next即可完成安装。</p>
+<p>安装完HLK client之后，去服务端打开HLK studio，便可以在默认连接池中找到我们刚刚成功安装的HLK client</p>
+<p><img src="http://oss.ilovecpp.com/blog/whql/pool.png" alt="setup"></p>
+<p>HLK的测试环境到此搭建完成。</p>
+<h2 id="开始测试"><a href="#开始测试" class="headerlink" title="开始测试"></a>开始测试</h2><p>首先需要新建一个计算机池（HLK控制器会把测试的任务，分配到你选择的计算机池里边），然后将默认的计算机池中的计算机拖动至我们新建的计算机池中，然后右键计算机池中的计算机，可以改变其状态，当计算机的状态为Ready状态的时候，即表示当前的计算机可以开始测试任务了。</p>
+<p>配置好计算机池后，我们就可以新建测试项目了：</p>
+<p><img src="http://oss.ilovecpp.com/blog/whql/start.png" alt="setup"></p>
+<p>新建完成后选择项目，然后点击Selection，到这里可以选择测项，由于我们的驱动程序是一个文件系统，选择下图红圈中的Software device，选到对应的驱动程序，打上勾即可：</p>
+<p><img src="http://oss.ilovecpp.com/blog/whql/selection.png" alt="setup"></p>
+<p>下面切换到Tests选项，下图是测项旁边可能会出现的几种标志的意思，比如有个人形的logo代表测试的时候需要交互：</p>
+<p><img src="http://oss.ilovecpp.com/blog/whql/state.png" alt="setup"></p>
+<p>给全部的测项打上勾，点击Run Selected，此时测试就开始了。</p>
+<p><img src="http://oss.ilovecpp.com/blog/whql/test.png" alt="setup"></p>
+<p>测试的过程中测试系统会重启，等重启完成后，如果驱动程序需要手动启动的话，就先启动我们的驱动程序，驱动程序启动后就不需要再操作测试系统了，等待测试完成即可。当测试结果出现错误的时候，首先确保测试系统为英文操作系统。</p>
+<h2 id="测试结果打包"><a href="#测试结果打包" class="headerlink" title="测试结果打包"></a>测试结果打包</h2><p>如果一切顺利的话，所有的测项都通过了，就可以对测试的结果打包，提交给微软审核了。打包需要的几个材料分别是：</p>
+<p><img src="http://oss.ilovecpp.com/blog/whql/hlkx.png" alt="setup"></p>
+<p>蓝色的项目中不需要我们手动添加了，我们需要提供EV代码签过名的驱动程序以及对应的inf文件，还有对应的pdb符号文件。点击Create Package ，</p>
+<p><img src="http://oss.ilovecpp.com/blog/whql/package.png" alt="setup"></p>
+<p>这时候会弹出一个签名的提示，根据情况选择2或3即可，未签名的hlkx文件是无法提交给微软审核的。等待打包完成会生成一个hlkx文件，这个就是需要提交给微软审核测试包了，具体过程不赘述了，非常简单。通常耐心等待20分钟即可完成审核，获得微软的数字签名（所谓的微软徽标认证）。</p>
+<p>18年12月29补充一个微软WinHEC的视频：<a target="_blank" rel="noopener" href="https://channel9.msdn.com/Events/WinHEC/2015/DDF201-M">https://channel9.msdn.com/Events/WinHEC/2015/DDF201-M</a></p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/whql/" rel="tag"># whql</a>
+              <a href="/tags/%E9%A9%B1%E5%8A%A8/" rel="tag"># 驱动</a>
+              <a href="/tags/windows/" rel="tag"># windows</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2018/03/01/dhcp/" rel="prev" title="为什么DHCP要基于UDP协议？">
+      <i class="fa fa-chevron-left"></i> 为什么DHCP要基于UDP协议？
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2018/04/14/libevent-preface/" rel="next" title="抽丝剥茧libevent——前言">
+      抽丝剥茧libevent——前言 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#whql%E8%AE%A4%E8%AF%81%E6%98%AF%E4%BB%80%E4%B9%88"><span class="nav-number">1.</span> <span class="nav-text">whql认证是什么</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%B3%A8%E5%86%8C%E5%85%AC%E5%8F%B8%E5%BC%80%E5%8F%91%E8%80%85%E8%B4%A6%E5%8F%B7"><span class="nav-number">2.</span> <span class="nav-text">注册公司开发者账号</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%87%86%E5%A4%87%E6%B5%8B%E8%AF%95%E8%AE%BE%E5%A4%87"><span class="nav-number">3.</span> <span class="nav-text">准备测试设备</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AE%89%E8%A3%85%E6%B5%8B%E8%AF%95%E6%9C%8D%E5%8A%A1%E5%99%A8"><span class="nav-number">4.</span> <span class="nav-text">安装测试服务器</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AE%89%E8%A3%85%E6%B5%8B%E8%AF%95%E7%B3%BB%E7%BB%9F"><span class="nav-number">5.</span> <span class="nav-text">安装测试系统</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%BC%80%E5%A7%8B%E6%B5%8B%E8%AF%95"><span class="nav-number">6.</span> <span class="nav-text">开始测试</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%B5%8B%E8%AF%95%E7%BB%93%E6%9E%9C%E6%89%93%E5%8C%85"><span class="nav-number">7.</span> <span class="nav-text">测试结果打包</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : '65632b8125058af63f500ff043c1ea90',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>

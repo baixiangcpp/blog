@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="现代网络库通常基于reactor模式或者proactor模式。使用这两种模式，可以将具体业务从网络框架中分离出去，从而降低耦合。 这两者的基本概念是：如何深刻理解reactor和proactor？。 由于Linux缺少完备的系统异步I&#x2F;O支持，proactor模式在LInux上玩不转。Windows上的IOCP通常可以用来实现proactor。 libevent采用的是reactor模式">
+<meta property="og:type" content="article">
+<meta property="og:title" content="抽丝剥茧libevent——reactor模式">
+<meta property="og:url" content="https://ilovecpp.com/2018/04/26/libevent-reactor/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="现代网络库通常基于reactor模式或者proactor模式。使用这两种模式，可以将具体业务从网络框架中分离出去，从而降低耦合。 这两者的基本概念是：如何深刻理解reactor和proactor？。 由于Linux缺少完备的系统异步I&#x2F;O支持，proactor模式在LInux上玩不转。Windows上的IOCP通常可以用来实现proactor。 libevent采用的是reactor模式">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-reactor/reactor.png">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-reactor/qq.gif">
+<meta property="article:published_time" content="2018-04-26T15:40:35.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.839Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="linux">
+<meta property="article:tag" content="网络">
+<meta property="article:tag" content="libevent">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-reactor/reactor.png">
+
+<link rel="canonical" href="https://ilovecpp.com/2018/04/26/libevent-reactor/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>抽丝剥茧libevent——reactor模式 | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2018/04/26/libevent-reactor/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          抽丝剥茧libevent——reactor模式
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2018-04-26 23:40:35" itemprop="dateCreated datePublished" datetime="2018-04-26T23:40:35+08:00">2018-04-26</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/libevent/" itemprop="url" rel="index"><span itemprop="name">libevent</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>现代网络库通常基于reactor模式或者proactor模式。使用这两种模式，可以将具体业务从网络框架中分离出去，从而降低耦合。 这两者的基本概念是：<a target="_blank" rel="noopener" href="https://www.zhihu.com/question/26943938">如何深刻理解reactor和proactor？</a>。</p>
+<p>由于Linux缺少完备的系统异步I&#x2F;O支持，proactor模式在LInux上玩不转。Windows上的IOCP通常可以用来实现proactor。</p>
+<p>libevent采用的是reactor模式。</p>
+<span id="more"></span>
+
+<h1 id="Reactor"><a href="#Reactor" class="headerlink" title="Reactor"></a>Reactor</h1><p>Reactor早在1995年的时候就被Jim Coplien 和 Douglas C. Schmidt提出。它是一种设计模式，用于处理多个传递给服务处理程序的服务请求（Resources），把这些服务请求分解（Synchronous Event Demultiplexer），并且通过调度器（Dispatcher）将这些请求派发给关联的处理程序（Request Handler）。如果深入了解其语义、使用场景以及优缺点可以参阅这篇论文，<a target="_blank" rel="noopener" href="http://www.dre.vanderbilt.edu/~schmidt/PDF/reactor-siemens.pdf">http://www.dre.vanderbilt.edu/~schmidt&#x2F;PDF&#x2F;reactor-siemens.pdf</a>。</p>
+<p>上边提到的四个英文名词，正是是构成了一个reactor的主要部件，其作用分别如下：</p>
+<table>
+<thead>
+<tr>
+<th align="left">部件</th>
+<th align="left">作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Resources</td>
+<td align="left">发生事件的资源，如文件描述符</td>
+</tr>
+<tr>
+<td align="left">Synchronous Event Demultiplexer</td>
+<td align="left">将同步的事件多路分解，select,poll,epoll等就是充当这个角色</td>
+</tr>
+<tr>
+<td align="left">Dispatcher</td>
+<td align="left">将产生I&#x2F;O事件的资源派发给对应的处理程序</td>
+</tr>
+<tr>
+<td align="left">Request Handler</td>
+<td align="left">资源对应的处理程序(回调函数)</td>
+</tr>
+</tbody></table>
+<p>一个完整的Reactor只需把这四个部件实现出来即可，后面的章节我们将逐一实现。</p>
+<h1 id="Reactor事件流"><a href="#Reactor事件流" class="headerlink" title="Reactor事件流"></a>Reactor事件流</h1><p>reactor是一种基于事件驱动的设计模式。所谓事件驱动，简单来说就是产生什么事件，就会执行什么回调函数。一个reactor的事件流是这样的，图片修改自python中事件驱动库——<a target="_blank" rel="noopener" href="https://twistedmatrix.com/trac/wiki">Twisted</a>：</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-reactor/reactor.png" alt="twisted"></p>
+<p>主要有这几个步骤：</p>
+<ol>
+<li>注册事件</li>
+<li>将事件加入reactor</li>
+<li>开始事件循环（下图虚线以上部分）</li>
+<li>事件发生，调用回调函数,回到(3) （下图虚线以下部分）</li>
+<li>回调函数中，可能会动态添加、删除事件，回到(1)开始</li>
+</ol>
+<p>libevent主要的内容就是实现了上图中虚线以上的部分，使用libevent时，我们主要工作就是实现虚线以下的业务。</p>
+<p>有了以上内容铺垫，下面将开始实现一个完整的libevent-like风格的reactor。<br>对于Synchronous Event Demultiplexer Linux上已经有了epoll，不需要额外添加。下面就先从Dispatcher着手。要实现Dispatcher得理解事件循环的概念，为了便于理解，不妨看看Windows上的消息循环。如果你之前并未接触过windows GUI编程，也不必担心，这非常容易。</p>
+<h1 id="Windows消息循环"><a href="#Windows消息循环" class="headerlink" title="Windows消息循环"></a>Windows消息循环</h1><p>先来看一张动图：</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-reactor/qq.gif" alt="qq"></p>
+<p>我点击了一下向下的箭头按钮，然后QQ号码的列表就显示出来了，这样的过程就是事件驱动的。点击鼠标是一个事件，事件发生后，QQ号码列表才会被弹出。在这个过程中，鼠标的按下和弹起，windows通常会产生<code>WM_LBUTTONDOWN</code>和<code>WM_LBUTTONUP</code>对应的两个消息发往对应的窗体程序。窗体程序如果事先绑定了按钮被点击的函数的话，这时这个函数就会被回调。</p>
+<p>那么消息循环是如何实现的呢？基本上对于所有的Windows上的GUI程序，抽丝剥茧后(或者包含在第三方的UI库中)都能找到这样的消息循环的代码：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line"><span class="keyword">while</span> (<span class="built_in">GetMessage</span>(&amp;msg, <span class="literal">nullptr</span>, <span class="number">0</span>, <span class="number">0</span>))</span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">if</span> (!<span class="built_in">TranslateAccelerator</span>(msg.hwnd, hAccelTable, &amp;msg))</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="built_in">TranslateMessage</span>(&amp;msg);</span><br><span class="line">        <span class="built_in">DispatchMessage</span>(&amp;msg);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>GetMessage的作用是不停的从调用线程的消息队列里获取消息，消息队列为空的时候会阻塞。DispatchMessage函数的作用是将消息发送给窗体程序对应的窗口过程函数，窗口过程函数会根据注册的消息，调用相应的回调函数。其他函数与本节主题无关，不多赘述，感兴趣的可以参考<a target="_blank" rel="noopener" href="https://docs.microsoft.com/en-us/windows/desktop/winmsg/using-messages-and-message-queues">MSDN</a>。</p>
+<p>以上代码本质上就是一个Dispatcher，只要用epoll相关的函数替换一下，就能为我们所用了。</p>
+<h1 id="Dispatcher"><a href="#Dispatcher" class="headerlink" title="Dispatcher"></a>Dispatcher</h1><p>GetMessage函数的特点和epoll_wait类似，都是从监控源中获取消息&#x2F;事件，为空时会阻塞调用线程。Dispatcher中最关键的就是epoll_wait处理了。一个libevent-like风格的Dispatcher就可以实现成：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//event_base 这样&quot;别扭&quot;的封装是为了和libevent统一风格</span></span><br><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">event_base</span></span></span><br><span class="line"><span class="class">&#123;</span></span><br><span class="line">    <span class="type">int</span> epollfd;</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line"><span class="type">void</span> <span class="title function_">event_base_dispatch</span><span class="params">(<span class="keyword">struct</span> event_base *base)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">for</span>(;;)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="type">int</span> nfds = epoll_wait(base-&gt;epollfd, events, MAX_EVENTS, <span class="number">-1</span>);</span><br><span class="line">        <span class="keyword">if</span>( xxx )</span><br><span class="line">        &#123;</span><br><span class="line">            <span class="comment">//callback;</span></span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这还不是一个完整的Dispatcher，callback这里的逻辑暂时被我省略了，因为到目前为止，还不知道如何去获取事件绑定的回调函数，在<code>事件处理</code>节，我们再来完善这部分代码。</p>
+<h1 id="事件"><a href="#事件" class="headerlink" title="事件"></a>事件</h1><p>前面提到reactor是事件驱动的，事件是libevent基本操作的单位。一个事件应当至少包括这些元素：</p>
+<ol>
+<li>事件源</li>
+<li>事件类型</li>
+<li>事件的回调函数</li>
+</ol>
+<p>因此可以这样封装事件：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="title function_">void</span> <span class="params">(*callback)</span><span class="params">(<span class="type">int</span> fd, <span class="type">int</span> events, <span class="type">void</span> *arg)</span>;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">event</span></span></span><br><span class="line"><span class="class">&#123;</span></span><br><span class="line">    <span class="type">int</span> fd;                     <span class="comment">//文件描述符</span></span><br><span class="line">    <span class="type">short</span> events;               <span class="comment">//事件类型，EPOLLIN等</span></span><br><span class="line">    <span class="type">void</span> *arg;                  <span class="comment">//传递给回调函数的额外参数</span></span><br><span class="line">    callback cb;                <span class="comment">//回调函数指针</span></span><br><span class="line"></span><br><span class="line">    <span class="type">char</span> *buf;                  <span class="comment">//I/O缓冲区</span></span><br><span class="line">    <span class="type">int</span> bufsize;                <span class="comment">//缓冲区大小</span></span><br><span class="line"></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">event_base</span> *<span class="title">base</span>;</span></span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p>相应的，event_new表示创建一个事件，同时也是将事件与回调函数绑定的一个过程:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/*</span></span><br><span class="line"><span class="comment"> * base   event_base</span></span><br><span class="line"><span class="comment"> * fd     要绑定的文件描述符</span></span><br><span class="line"><span class="comment"> * events 事件类型</span></span><br><span class="line"><span class="comment"> * cb     回调函数</span></span><br><span class="line"><span class="comment"> * arg    传给回调函数的额外参数</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">struct</span> event *<span class="title function_">event_new</span><span class="params">(<span class="keyword">struct</span> event_base *base, <span class="type">int</span> fd, <span class="type">short</span> events, callback cb, <span class="type">void</span> *arg)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">event</span> *<span class="title">ev</span> =</span> <span class="built_in">malloc</span>(<span class="keyword">sizeof</span>(<span class="keyword">struct</span> event));</span><br><span class="line">    <span class="keyword">if</span> (!ev)</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">NULL</span>;</span><br><span class="line"></span><br><span class="line">    ev-&gt;fd = fd;</span><br><span class="line">    ev-&gt;events = events;</span><br><span class="line">    ev-&gt;cb = cb;</span><br><span class="line">    ev-&gt;base = base;</span><br><span class="line">    ev-&gt;arg = arg;</span><br><span class="line">    ev-&gt;buf = <span class="built_in">malloc</span>(BUF_SIZE);</span><br><span class="line">    ev-&gt;bufsize = BUF_SIZE;</span><br><span class="line">    bzero(ev-&gt;buf, BUF_SIZE);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> ev;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<h1 id="添加、删除事件"><a href="#添加、删除事件" class="headerlink" title="添加、删除事件"></a>添加、删除事件</h1><p>有了struct event之后，现在需要将其添加到reactor的Dispatcher上(在我们的这里也就是epoll的监控列表里)。而<code>epoll_event</code>结构，极大的方便我们将<code>struct event</code>添加到epoll上。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">union</span> <span class="title">epoll_data</span></span></span><br><span class="line"><span class="class">&#123;</span></span><br><span class="line">    <span class="type">void</span>        *ptr;</span><br><span class="line">    <span class="type">int</span>          fd;</span><br><span class="line">    <span class="type">uint32_t</span>     u32;</span><br><span class="line">    <span class="type">uint64_t</span>     u64;</span><br><span class="line">&#125; <span class="type">epoll_data_t</span>;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">epoll_event</span> </span></span><br><span class="line"><span class="class">&#123;</span></span><br><span class="line">    <span class="type">uint32_t</span>     events;      <span class="comment">/* Epoll events */</span></span><br><span class="line">    <span class="type">epoll_data_t</span> data;        <span class="comment">/* User data variable */</span></span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p>调用epoll_ctl的时候,只需将event指针赋给data域。这样一来事件的添加和上一章的epoll示例中，添加文件描述符并无太大差别。event_add函数表示上epoll添加监听事件：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">event_add</span><span class="params">(<span class="keyword">struct</span> event *ev)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">epoll_event</span> <span class="title">epollev</span>;</span></span><br><span class="line">    epollev.events = ev-&gt;events;</span><br><span class="line">    epollev.data.ptr = ev;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (epoll_ctl(ev-&gt;base-&gt;epollfd, EPOLL_CTL_ADD, ev-&gt;fd, &amp;epollev) == <span class="number">-1</span>)</span><br><span class="line">        onError(<span class="string">&quot;epoll_ctl add fd&quot;</span>);</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>此外event_del、event_mod分别表示事件的删除和修改。限于篇幅不全部贴出，文末会给出完整的代码。</p>
+<h1 id="事件处理"><a href="#事件处理" class="headerlink" title="事件处理"></a>事件处理</h1><p>再回过头看base_dispatch这个函数，前面省略了调用回调函数的相关代码。现在有了<code>struct event</code>我们就能写出相对完整的处理了。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">base_dispatch</span><span class="params">(<span class="keyword">struct</span> event_base *base)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="type">int</span> nfds;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">epoll_event</span> <span class="title">events</span>[<span class="title">MAX_EVENTS</span>];</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (;;)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="type">int</span> n = <span class="number">0</span>;</span><br><span class="line">        nfds = epoll_wait(base-&gt;epollfd, events, MAX_EVENTS, <span class="number">-1</span>);</span><br><span class="line">        <span class="keyword">if</span> (nfds == <span class="number">-1</span>)</span><br><span class="line">            <span class="built_in">exit</span>(EXIT_FAILURE);</span><br><span class="line"></span><br><span class="line">        <span class="keyword">for</span> (n = <span class="number">0</span>; n &lt; nfds; ++n)</span><br><span class="line">        &#123;</span><br><span class="line">            <span class="class"><span class="keyword">struct</span> <span class="title">epoll_event</span> <span class="title">epollev</span> =</span> events[n];</span><br><span class="line">            <span class="class"><span class="keyword">struct</span> <span class="title">event</span> *<span class="title">ev</span> =</span> (<span class="keyword">struct</span> event *)epollev.data.ptr;</span><br><span class="line">            ev-&gt;cb(ev-&gt;fd, epollev.events, ev);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>监听的事件发生后，再从<code>struct epoll_event</code>的data域中取出对应的<code>struct event</code>，调用绑定的回调函数。</p>
+<h1 id="完整的reactor"><a href="#完整的reactor" class="headerlink" title="完整的reactor"></a>完整的reactor</h1><p>到现在为止，reactor所需要的四个部件，我们已经拥有了3个了：Resources(文件描述符)，Demultiplexer(epoll),Dispatcher。现在只剩一下一个Request Handler未实现，对于网络库而言，这部分应该是交给用户根据具体的业务而实现的。</p>
+<p>利用上述已有的代码，我实现了一个简单的echo服务。recvdata从客户端读取内容存放到event的buf中，再利用senddata原封不动的发往客户端。完整代码在我的gist上:<a target="_blank" rel="noopener" href="https://gist.github.com/baixiangcpp/be7872baa82d9b9c400b17a2b0fe5fe3">https://gist.github.com/baixiangcpp/be7872baa82d9b9c400b17a2b0fe5fe3</a>。</p>
+<h1 id="libevent中事件的处理"><a href="#libevent中事件的处理" class="headerlink" title="libevent中事件的处理"></a>libevent中事件的处理</h1><p>libevent事件处理远比我这里复杂的多，它并没有”粗暴”的将event的指针放到epoll_event中，而是利用了好链表、堆、哈希表等数据结构来维护。这么做的目的，我们将在后边的章节里，一一分析。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/linux/" rel="tag"># linux</a>
+              <a href="/tags/%E7%BD%91%E7%BB%9C/" rel="tag"># 网络</a>
+              <a href="/tags/libevent/" rel="tag"># libevent</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2018/04/20/lievent-trick/" rel="prev" title="抽丝剥茧libevent——通用的编程技法">
+      <i class="fa fa-chevron-left"></i> 抽丝剥茧libevent——通用的编程技法
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2018/05/01/libevent-event-analyze/" rel="next" title="抽丝剥茧libevent——初识event">
+      抽丝剥茧libevent——初识event <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Reactor"><span class="nav-number">1.</span> <span class="nav-text">Reactor</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Reactor%E4%BA%8B%E4%BB%B6%E6%B5%81"><span class="nav-number">2.</span> <span class="nav-text">Reactor事件流</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Windows%E6%B6%88%E6%81%AF%E5%BE%AA%E7%8E%AF"><span class="nav-number">3.</span> <span class="nav-text">Windows消息循环</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Dispatcher"><span class="nav-number">4.</span> <span class="nav-text">Dispatcher</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%BA%8B%E4%BB%B6"><span class="nav-number">5.</span> <span class="nav-text">事件</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%B7%BB%E5%8A%A0%E3%80%81%E5%88%A0%E9%99%A4%E4%BA%8B%E4%BB%B6"><span class="nav-number">6.</span> <span class="nav-text">添加、删除事件</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%BA%8B%E4%BB%B6%E5%A4%84%E7%90%86"><span class="nav-number">7.</span> <span class="nav-text">事件处理</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%AE%8C%E6%95%B4%E7%9A%84reactor"><span class="nav-number">8.</span> <span class="nav-text">完整的reactor</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#libevent%E4%B8%AD%E4%BA%8B%E4%BB%B6%E7%9A%84%E5%A4%84%E7%90%86"><span class="nav-number">9.</span> <span class="nav-text">libevent中事件的处理</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : '04c1957e4c85b111c2db5b2cf021b999',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>

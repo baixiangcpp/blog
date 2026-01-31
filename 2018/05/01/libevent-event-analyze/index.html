@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="从这章起正式进入libevent的源码部分，libevent是事件驱动(event-driven)的网络库，事件是一切操作的基本单元，那么就从event说起。 首先event是一个不透明结构(opaque structure)，对于使用者来说，无需关心它的内部数据结构。所有对event的操作，都需要通过libevent提供的接口,不能自己私自操作其中的数据(不得不感慨一下，指针还是给了程序员太大的">
+<meta property="og:type" content="article">
+<meta property="og:title" content="抽丝剥茧libevent——初识event">
+<meta property="og:url" content="https://ilovecpp.com/2018/05/01/libevent-event-analyze/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="从这章起正式进入libevent的源码部分，libevent是事件驱动(event-driven)的网络库，事件是一切操作的基本单元，那么就从event说起。 首先event是一个不透明结构(opaque structure)，对于使用者来说，无需关心它的内部数据结构。所有对event的操作，都需要通过libevent提供的接口,不能自己私自操作其中的数据(不得不感慨一下，指针还是给了程序员太大的">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-reactor/event.png">
+<meta property="article:published_time" content="2018-05-01T15:40:35.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.839Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="linux">
+<meta property="article:tag" content="网络">
+<meta property="article:tag" content="libevent">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-reactor/event.png">
+
+<link rel="canonical" href="https://ilovecpp.com/2018/05/01/libevent-event-analyze/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>抽丝剥茧libevent——初识event | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2018/05/01/libevent-event-analyze/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          抽丝剥茧libevent——初识event
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2018-05-01 23:40:35" itemprop="dateCreated datePublished" datetime="2018-05-01T23:40:35+08:00">2018-05-01</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/libevent/" itemprop="url" rel="index"><span itemprop="name">libevent</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>从这章起正式进入libevent的源码部分，libevent是事件驱动(event-driven)的网络库，事件是一切操作的基本单元，那么就从event说起。</p>
+<p>首先event是一个不透明结构(opaque structure)，对于使用者来说，无需关心它的内部数据结构。所有对event的操作，都需要通过libevent提供的接口,不能自己私自操作其中的数据(不得不感慨一下，指针还是给了程序员太大的自由了)。这样做的好处主要有两个，<a target="_blank" rel="noopener" href="http://www.ilovecpp.com/2018/04/20/lievent-trick/">通用编程技法</a>一章已经提到过了：信息封装和二进制兼容。对于一个动态库来讲，这两个特性尤为重要。<span id="more"></span></p>
+<h1 id="event概念"><a href="#event概念" class="headerlink" title="event概念"></a>event概念</h1><p>关于概念性的内容，libevent官方已经有了非常详细的英文文档说明:<a target="_blank" rel="noopener" href="http://www.wangafu.net/~nickm/libevent-book/">http://www.wangafu.net/~nickm&#x2F;libevent-book&#x2F;</a>,已经有人这些文档翻译成了中文:<a target="_blank" rel="noopener" href="https://aceld.gitbooks.io/libevent/content/">https://aceld.gitbooks.io/libevent/content/</a>，方便对照着看。</p>
+<p>珠玉在前，WHAT和HOW部分我就不再费笔墨赘述了。本系列博客主要是深入源码，探究WHY。</p>
+<h1 id="struct-event结构说明"><a href="#struct-event结构说明" class="headerlink" title="struct event结构说明"></a>struct event结构说明</h1><p>首先来看struct event的定义,这和我们事先的<a target="_blank" rel="noopener" href="http://www.ilovecpp.com/2018/04/26/libevent-reactor/#%E4%BA%8B%E4%BB%B6">reactor一节中的事件</a>有神似之处，掌握了那个以后，很容易理解下文中的libevent事件。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">event</span> &#123;</span></span><br><span class="line">    <span class="comment">//事件对应的回调函数</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">event_callback</span> <span class="title">ev_evcallback</span>;</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">//用来管理超时事件最小堆的index</span></span><br><span class="line">    <span class="class"><span class="keyword">union</span> &#123;</span></span><br><span class="line">        TAILQ_ENTRY(event) ev_next_with_common_timeout;</span><br><span class="line">        <span class="type">int</span> min_heap_idx;</span><br><span class="line">    &#125; ev_timeout_pos;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//对于I/O事件该值为文件描述符</span></span><br><span class="line">    <span class="comment">//对于超时事件该值为-1</span></span><br><span class="line">    <span class="comment">//对于信号事件该值为信号值</span></span><br><span class="line">    <span class="type">evutil_socket_t</span> ev_fd;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//所属的event_base</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">event_base</span> *<span class="title">ev_base</span>;</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">//用来处理信号、I/O事件数据结构</span></span><br><span class="line">    <span class="class"><span class="keyword">union</span> &#123;</span></span><br><span class="line">        <span class="comment">/* used for io events */</span></span><br><span class="line">        <span class="class"><span class="keyword">struct</span> &#123;</span></span><br><span class="line">            LIST_ENTRY (event) ev_io_next;</span><br><span class="line">            <span class="class"><span class="keyword">struct</span> <span class="title">timeval</span> <span class="title">ev_timeout</span>;</span></span><br><span class="line">        &#125; ev_io;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* used by signal events */</span></span><br><span class="line">        <span class="class"><span class="keyword">struct</span> &#123;</span></span><br><span class="line">            LIST_ENTRY (event) ev_signal_next;</span><br><span class="line">            <span class="type">short</span> ev_ncalls;</span><br><span class="line">            <span class="comment">/* Allows deletes in callback */</span></span><br><span class="line">            <span class="type">short</span> *ev_pncalls;</span><br><span class="line">        &#125; ev_signal;</span><br><span class="line">    &#125; ev_;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//事件类型、标志可能的值是EV_TIMEOUT,EV_READ,EV_WRITE,EV_SIGNAL,EV_PERSIST...等</span></span><br><span class="line">    <span class="type">short</span> ev_events;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//回调函数的返回值</span></span><br><span class="line">    <span class="type">short</span> ev_res;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//事件的超时时间</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">timeval</span> <span class="title">ev_timeout</span>;</span></span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<h1 id="event的生命周期"><a href="#event的生命周期" class="headerlink" title="event的生命周期"></a>event的生命周期</h1><p>前面提到的中文翻译的文档里，有一张图完美的诠释了event的生命周期，带箭头实线表示函数调用，实线矩形表示event的状态，虚线矩形表示用来检测事件状态的函数：</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-reactor/event.png" alt="event"></p>
+<p>下面就围绕这张图的上半部分，结合源码探究event的前半生。event的下半生将在<a target="_blank" rel="noopener" href="http://www.ilovecpp.com/2018/05/06/libevent-event-base-analyze/">抽丝剥茧libevent——事件处理框架</a>介绍。</p>
+<h1 id="初始化event"><a href="#初始化event" class="headerlink" title="初始化event"></a>初始化event</h1><p>一个指针变量，可以通过event_new()函数，关联一个event。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">struct</span> event* <span class="title function_">event_new</span><span class="params">(<span class="keyword">struct</span> event_base *base, <span class="type">evutil_socket_t</span> fd, <span class="type">short</span> events, <span class="type">void</span> (*cb)(<span class="type">evutil_socket_t</span>, <span class="type">short</span>, <span class="type">void</span> *), <span class="type">void</span> *arg)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">event</span> *<span class="title">ev</span>;</span></span><br><span class="line">    ev = mm_malloc(<span class="keyword">sizeof</span>(<span class="keyword">struct</span> event));</span><br><span class="line">    <span class="keyword">if</span> (ev == <span class="literal">NULL</span>)</span><br><span class="line">        <span class="keyword">return</span> (<span class="literal">NULL</span>);</span><br><span class="line">    <span class="keyword">if</span> (event_assign(ev, base, fd, events, cb, arg) &lt; <span class="number">0</span>) &#123;</span><br><span class="line">        mm_free(ev);</span><br><span class="line">        <span class="keyword">return</span> (<span class="literal">NULL</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> (ev);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>主要做了2个事情：分配内存、初始化结构。</p>
+<p>首先通过mm_malloc先从堆上分配<code>struct event</code>的空间，为了监听这个事件，要保证这个事件一直在整个事件循环的过程中是存在的，因此只能从堆上分配。</p>
+<p>分配内存后的event通过event_assign()根据参数对其各个字段初始化。</p>
+<p>如果是要创建超时事件，fd和events的值分别设置为-1和0，libevent用一个宏来表示，超时事件的创建：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">define</span> evtimer_new(b, cb, arg) event_new((b), -1, 0, (cb), (arg))</span></span><br></pre></td></tr></table></figure>
+
+<p>此时新创建的event处于<code>non-pending</code>状态，event_assign()函数并未为其设置超时的时间，这个步骤会推迟到event被添加到reactor中的时候。跟着箭头向下，event_add()函数会将<code>non-pending</code>的event添加到reactor中，同时为其设置超时时间。</p>
+<h1 id="监听event"><a href="#监听event" class="headerlink" title="监听event"></a>监听event</h1><p>event_add()并不做实际的工作，而是获得锁之后，将任务交给event_add_nolock_函数来完成，关于libevent线程安全的内容暂且不说，后边单独开一篇来讨论。</p>
+<p>event_add_nolock_()干的活儿非常多，为了深入理解这里也不会一一展开，同样也需要留到后边剖析(事件管理框架，超时时间管理)，这里仅仅摘出一条主线，省略其他干扰项：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">event_add_nolock_</span><span class="params">(<span class="keyword">struct</span> event *ev, <span class="type">const</span> <span class="keyword">struct</span> timeval *tv,</span></span><br><span class="line"><span class="params">    <span class="type">int</span> tv_is_absolute)</span></span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> ((ev-&gt;ev_events &amp; (EV_READ|EV_WRITE|EV_CLOSED|EV_SIGNAL)) &amp;&amp;</span><br><span class="line">        !(ev-&gt;ev_flags &amp; (EVLIST_INSERTED|EVLIST_ACTIVE|EVLIST_ACTIVE_LATER))) &#123;</span><br><span class="line">        <span class="keyword">if</span> (ev-&gt;ev_events &amp; (EV_READ|EV_WRITE|EV_CLOSED))</span><br><span class="line">            res = evmap_io_add_(base, ev-&gt;ev_fd, ev);</span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> (ev-&gt;ev_events &amp; EV_SIGNAL)</span><br><span class="line">            res = evmap_signal_add_(base, (<span class="type">int</span>)ev-&gt;ev_fd, ev);</span><br><span class="line">        <span class="keyword">if</span> (res != <span class="number">-1</span>)</span><br><span class="line">            event_queue_insert_inserted(base, ev);</span><br><span class="line">        <span class="keyword">if</span> (res == <span class="number">1</span>) &#123;</span><br><span class="line">            <span class="comment">/* evmap says we need to notify the main thread. */</span></span><br><span class="line">            notify = <span class="number">1</span>;</span><br><span class="line">            res = <span class="number">0</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    ...</span><br><span class="line"></span><br><span class="line">    event_queue_insert_timeout(base, ev);</span><br><span class="line"></span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>提前稍微”剧透”一下,libevent分别利用两个hashmap(暂不考虑windows平台)分别管理I&#x2F;O事件和信号事件，利用最小堆管理超时事件。event变量正是通过event_add_nolock_()函数被调加到对应的数据结构上(分别是evmap_io_add_、evmap_signal_add_和event_queue_insert_timeout三个函数)。</p>
+<p>至此，event的状态就变为了<code>pending</code>状态，可以通过event_pending()获取。事件循环开始工作后，event就处于被监听的状态了。</p>
+<h1 id="取消监听event"><a href="#取消监听event" class="headerlink" title="取消监听event"></a>取消监听event</h1><p>libevent同样提供了接口让我们取消监听event，和event_add()类似，event_del()也是讲任务交给event_del_nolock_()来完成。取消监听和监听是逆操作，这在代码里边也有体现,同样地，只摘出了主线:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">event_del_nolock_</span><span class="params">(<span class="keyword">struct</span> event *ev, <span class="type">int</span> blocking)</span></span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (ev-&gt;ev_flags &amp; EVLIST_TIMEOUT) &#123;</span><br><span class="line">        event_queue_remove_timeout(base, ev);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (ev-&gt;ev_flags &amp; EVLIST_ACTIVE)</span><br><span class="line">        event_queue_remove_active(base, event_to_event_callback(ev));</span><br><span class="line">    <span class="keyword">else</span> <span class="keyword">if</span> (ev-&gt;ev_flags &amp; EVLIST_ACTIVE_LATER)</span><br><span class="line">        event_queue_remove_active_later(base, event_to_event_callback(ev));</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (ev-&gt;ev_flags &amp; EVLIST_INSERTED) &#123;</span><br><span class="line">        event_queue_remove_inserted(base, ev);</span><br><span class="line">        <span class="keyword">if</span> (ev-&gt;ev_events &amp; (EV_READ|EV_WRITE|EV_CLOSED))</span><br><span class="line">            res = evmap_io_del_(base, ev-&gt;ev_fd, ev);</span><br><span class="line">        <span class="keyword">else</span></span><br><span class="line">            res = evmap_signal_del_(base, (<span class="type">int</span>)ev-&gt;ev_fd, ev);</span><br><span class="line">        <span class="keyword">if</span> (res == <span class="number">1</span>) &#123;</span><br><span class="line">            <span class="comment">/* evmap says we need to notify the main thread. */</span></span><br><span class="line">            notify = <span class="number">1</span>;</span><br><span class="line">            res = <span class="number">0</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>因为event的回调函数可能在其他线程正在运行着，为了线程安全，<code>blocking</code>参数是必要的。</p>
+<p>event_del_nolock_()主要做的事情正和event_add_nolock_()相反，它把定时器从超时事件最小堆上移除，然后将其从信号或者I&#x2F;O的hashmap上移除。额外地，还需要将就绪的回调函数从待处理的回调函数链表上摘除，也就是说如果这个event已经触发，顺利调用了event_del之后，它的回调函数不会被运行。</p>
+<p>event的状态会从<code>pending</code>回到<code>non-pending</code>状态。</p>
+<h1 id="释放event"><a href="#释放event" class="headerlink" title="释放event"></a>释放event</h1><p>和event_new()对应，event_free()先取消监听event，然后释放其内存：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">event_free</span><span class="params">(<span class="keyword">struct</span> event *ev)</span></span><br><span class="line">&#123;</span><br><span class="line">    event_del(ev);</span><br><span class="line"></span><br><span class="line">    mm_free(ev);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>虽然简单，但是却很重要，尤其不要忘记释放内存，造成内存泄漏。</p>
+<h1 id="一次性事件"><a href="#一次性事件" class="headerlink" title="一次性事件"></a>一次性事件</h1><p>对于只需要触发一次的事件，libevent2.1提供了一种方案————<code>event_once</code>，让使用者不需要手动管理event，并且也保证了事件被触发后，内存会被自动被释放。</p>
+<p>原理并不复杂，先看一下它的结构,</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">event_once</span> &#123;</span></span><br><span class="line">    LIST_ENTRY(event_once) next_once;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">event</span> <span class="title">ev</span>;</span></span><br><span class="line"></span><br><span class="line">    <span class="type">void</span> (*cb)(<span class="type">evutil_socket_t</span>, <span class="type">short</span>, <span class="type">void</span> *);</span><br><span class="line">    <span class="type">void</span> *arg;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p>并没有event_once_new()之类的函数用于创建event_once，要使用它要到一个新的函数event_base_once,它将event_new 和 event_add两个步骤合成了一个：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">event_base_once</span><span class="params">(<span class="keyword">struct</span> event_base *base, <span class="type">evutil_socket_t</span> fd, <span class="type">short</span> events, <span class="type">void</span> (*callback)(<span class="type">evutil_socket_t</span>, <span class="type">short</span>, <span class="type">void</span> *), <span class="type">void</span> *arg, <span class="type">const</span> <span class="keyword">struct</span> timeval *tv)</span></span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    eonce-&gt;cb = callback;</span><br><span class="line">    eonce-&gt;arg = arg;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> ((events &amp; (EV_TIMEOUT|EV_SIGNAL|EV_READ|EV_WRITE|EV_CLOSED)) == EV_TIMEOUT) &#123;</span><br><span class="line">        evtimer_assign(&amp;eonce-&gt;ev, base, event_once_cb, eonce);</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> (tv == <span class="literal">NULL</span> || ! evutil_timerisset(tv)) &#123;</span><br><span class="line">            activate = <span class="number">1</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125; <span class="keyword">else</span> <span class="keyword">if</span> (events &amp; (EV_READ|EV_WRITE|EV_CLOSED)) &#123;</span><br><span class="line">        events &amp;= EV_READ|EV_WRITE|EV_CLOSED;</span><br><span class="line">        event_assign(&amp;eonce-&gt;ev, base, fd, events, event_once_cb, eonce);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        mm_free(eonce);</span><br><span class="line">        <span class="keyword">return</span> (<span class="number">-1</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (res == <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="keyword">if</span> (activate)</span><br><span class="line">            event_active_nolock_(&amp;eonce-&gt;ev, EV_TIMEOUT, <span class="number">1</span>);</span><br><span class="line">        <span class="keyword">else</span></span><br><span class="line">            res = event_add_nolock_(&amp;eonce-&gt;ev, tv, <span class="number">0</span>);</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> (res != <span class="number">0</span>) &#123;</span><br><span class="line">            mm_free(eonce);</span><br><span class="line">            <span class="keyword">return</span> (res);</span><br><span class="line">        &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">            LIST_INSERT_HEAD(&amp;base-&gt;once_events, eonce, next_once);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> (<span class="number">0</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>event_base_once的参数也和event_new一样，功能也是一样，不做额外的解释，主要看一下event_once里边的多出来的回调函数用来干了什么事情。</p>
+<p>我们用event_once-&gt;cb和event-&gt;cb分别表示event_once和event里的回调函数。首先函数入口处直接把参数里的callback赋值给了event_once-&gt;cb，它用来负责实际的事件回调。然后调用event_assign新建一个event初始化event_once-&gt;event的同时，传入了一个<code>event_once_cb</code>回调函数。这个函数才是事件发生时会被回调的函数，也是一次性事件的秘密所在:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">void</span> <span class="title function_">event_once_cb</span><span class="params">(<span class="type">evutil_socket_t</span> fd, <span class="type">short</span> events, <span class="type">void</span> *arg)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">event_once</span> *<span class="title">eonce</span> =</span> arg;</span><br><span class="line">    (*eonce-&gt;cb)(fd, events, eonce-&gt;arg);</span><br><span class="line">    EVBASE_ACQUIRE_LOCK(eonce-&gt;ev.ev_base, th_base_lock);</span><br><span class="line">    LIST_REMOVE(eonce, next_once);</span><br><span class="line">    EVBASE_RELEASE_LOCK(eonce-&gt;ev.ev_base, th_base_lock);</span><br><span class="line">    event_debug_unassign(&amp;eonce-&gt;ev);</span><br><span class="line">    mm_free(eonce);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>event_once_cb这个函数被回调时，会马上调用event_once-&gt;cb,然后把他从一次性事件的链表里移除，最后释放掉整个event_once所分配的内存。</p>
+<p>要是这个事件不触发，那么他的回调函数就不会被释放，event_once所占用的内存就得不到释放，我们无法获得它的指针对其free。一次性事件链表就是为了解决这个问题的，他是<code>event_base</code>里的一个结构</p>
+<blockquote>
+<p>LIST_HEAD(once_event_list, event_once) once_events;</p>
+</blockquote>
+<p>所有的event_once在释放之前都会保留在这个链表里，除了event_once_cb触发时会被移除，在event_base被释放时，也会将所有once_events里的event_once逐个释放。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">void</span> <span class="title function_">event_base_free_</span><span class="params">(<span class="keyword">struct</span> event_base *base, <span class="type">int</span> run_finalizers)</span></span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    <span class="keyword">while</span> (LIST_FIRST(&amp;base-&gt;once_events)) &#123;</span><br><span class="line">        <span class="class"><span class="keyword">struct</span> <span class="title">event_once</span> *<span class="title">eonce</span> =</span> LIST_FIRST(&amp;base-&gt;once_events);</span><br><span class="line">        LIST_REMOVE(eonce, next_once);</span><br><span class="line">        mm_free(eonce);</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“空谈误国，实干兴邦”，写程序也是一样的道理，光看源码远远不够，要深切体会struct event还是多用。用的够多了，回头再看源码，才会有醍醐灌顶之感。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/linux/" rel="tag"># linux</a>
+              <a href="/tags/%E7%BD%91%E7%BB%9C/" rel="tag"># 网络</a>
+              <a href="/tags/libevent/" rel="tag"># libevent</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2018/04/26/libevent-reactor/" rel="prev" title="抽丝剥茧libevent——reactor模式">
+      <i class="fa fa-chevron-left"></i> 抽丝剥茧libevent——reactor模式
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2018/05/02/libevent-event-base/" rel="next" title="抽丝剥茧libevent——初始化event_base">
+      抽丝剥茧libevent——初始化event_base <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#event%E6%A6%82%E5%BF%B5"><span class="nav-number">1.</span> <span class="nav-text">event概念</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#struct-event%E7%BB%93%E6%9E%84%E8%AF%B4%E6%98%8E"><span class="nav-number">2.</span> <span class="nav-text">struct event结构说明</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#event%E7%9A%84%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F"><span class="nav-number">3.</span> <span class="nav-text">event的生命周期</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%88%9D%E5%A7%8B%E5%8C%96event"><span class="nav-number">4.</span> <span class="nav-text">初始化event</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E7%9B%91%E5%90%ACevent"><span class="nav-number">5.</span> <span class="nav-text">监听event</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%8F%96%E6%B6%88%E7%9B%91%E5%90%ACevent"><span class="nav-number">6.</span> <span class="nav-text">取消监听event</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E9%87%8A%E6%94%BEevent"><span class="nav-number">7.</span> <span class="nav-text">释放event</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%B8%80%E6%AC%A1%E6%80%A7%E4%BA%8B%E4%BB%B6"><span class="nav-number">8.</span> <span class="nav-text">一次性事件</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">9.</span> <span class="nav-text">总结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : '46d041ebfdc220b8c2d5f87e1a57bd9e',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>

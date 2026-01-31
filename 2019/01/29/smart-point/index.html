@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="原始指针(raw pointer，为了表述方便，下面提到的‘指针’均指原始指针)是C&#x2F;C++最强大的工具，它威力无穷，但是稍有不慎，就有引发各种内存问题。智能指针来势汹汹，它利用RAII特性对指针的封装，帮助程序员自动管理内存。其目的是用来代替指针。重载了操作符(operator*,operator-&gt;和operator[])，用起来和指针没多大区别。同时也规避了许多指针带来的陷阱">
+<meta property="og:type" content="article">
+<meta property="og:title" content="都9102年了,你居然还没用上智能指针">
+<meta property="og:url" content="https://ilovecpp.com/2019/01/29/smart-point/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="原始指针(raw pointer，为了表述方便，下面提到的‘指针’均指原始指针)是C&#x2F;C++最强大的工具，它威力无穷，但是稍有不慎，就有引发各种内存问题。智能指针来势汹汹，它利用RAII特性对指针的封装，帮助程序员自动管理内存。其目的是用来代替指针。重载了操作符(operator*,operator-&gt;和operator[])，用起来和指针没多大区别。同时也规避了许多指针带来的陷阱">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2019-01-29T11:43:35.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.840Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="linux">
+<meta property="article:tag" content="thread-safety">
+<meta property="article:tag" content="c++">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://ilovecpp.com/2019/01/29/smart-point/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>都9102年了,你居然还没用上智能指针 | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2019/01/29/smart-point/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          都9102年了,你居然还没用上智能指针
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-01-29 19:43:35" itemprop="dateCreated datePublished" datetime="2019-01-29T19:43:35+08:00">2019-01-29</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/c/" itemprop="url" rel="index"><span itemprop="name">c++</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>原始指针(raw pointer，为了表述方便，下面提到的‘指针’均指原始指针)是C&#x2F;C++最强大的工具，它威力无穷，但是稍有不慎，就有引发各种内存问题。智能指针来势汹汹，它利用RAII特性对指针的封装，帮助程序员自动管理内存。其目的是用来代替指针。重载了操作符(operator*,operator-&gt;和operator[])，用起来和指针没多大区别。同时也规避了许多指针带来的陷阱，大大减少了程序员犯错的机会。本篇博客我将列举原始指针之罪以及一些不得不使用智能指针的理由。</p>
+<p>本文的智能指针(<a target="_blank" rel="noopener" href="https://en.cppreference.com/book/intro/smart_pointers">https://en.cppreference.com/book/intro/smart_pointers</a>)是指C++11以来的<code>std::unique_ptr</code>、<code>std::shared_ptr</code>和<code>std::weak_ptr</code>,不包括半吊子的<code>std::auto_ptr</code>，它谈不上智能二字(不支持移动语义，不能存储在容器中)。<span id="more"></span></p>
+<h1 id="原始指针七宗罪"><a href="#原始指针七宗罪" class="headerlink" title="原始指针七宗罪"></a>原始指针七宗罪</h1><p>C&#x2F;C++程序员恐怕没有没吃过指针亏的，先列举它主要的罪状：</p>
+<ol>
+<li>不能通过一个指针判断指向的是单个对象还是一个数组。</li>
+<li>当你使用完指针的时候，你不知道应不应该将它释放(delete)。</li>
+<li>使用指针时，当你确定要释放一处内存，你不知道如何释放(除了delete之外)。智能指针可以在构造的时候指定custom deleter。</li>
+<li>当你确定使用delete释放内存的时候，又不知道使用delete还是delete[]，一旦用错，就是未定义的错误。</li>
+<li>你无法确定一个指针是不是空悬指针(dangle)。</li>
+<li>忘记释放内存会造成内存泄漏(memory leak)。</li>
+<li>重复释放内存会造成重复释放(double delete)。</li>
+</ol>
+<p>一些内存错误，通常不是必现的，偶尔出现一次内存错误，排查起来也不容易。正确使用智能指针，能很好的杜绝程序里出这些问题。为了保全头发，还是趁早的放弃原始指针。</p>
+<h1 id="智能指针"><a href="#智能指针" class="headerlink" title="智能指针"></a>智能指针</h1><p>C++11带来了3种智能指针:</p>
+<blockquote>
+<p>std::unique_ptr : unique_ptr is a smart pointer that owns and manages another object through a pointer and disposes of that object when the unique_ptr goes out of scope.</p>
+</blockquote>
+<p>unique_ptr和被指向的对象表示一种独自占有的关系，因此拷贝一个unique_ptr是不允许的，是”move-only”的。智能通过转移语义将一个unique_ptr的值初始化另外的unique_ptr(源指针将会被置为nullptr)。auto_ptr在表现上很像一个unique_ptr，但是由于当时没有move语义，因此成为了鸡肋。unique_ptr基本上是没有额外的性能消耗的，和使用raw pointer基本一致，应优先考虑。</p>
+<blockquote>
+<p>std::shared_ptr : shared_ptr is a smart pointer that retains shared ownership of an object through a pointer. Several shared_ptr objects may own the same object. </p>
+</blockquote>
+<p>shared_ptr可以和其他的shared_ptr共同管理同一个对象。通过引用计数表示共有几个shared_ptr管理着当前的对象。当最后一个拥有对象的shared_ptr被析构时(或者被reset())，该对象才会被delete。shared_ptr是有一点性能损失的：1.需要一个额外的字段表示引用计数 2.引用计数需要动态分配 3.引用计数的Increment 和 decrement操作被实现时原子操作。</p>
+<blockquote>
+<p>std::weak_ptr ：weak_ptr is a smart pointer that holds a non-owning (“weak”) reference to an object that is managed by std::shared_ptr. It must be converted to std::shared_ptr in order to access the referenced object.</p>
+</blockquote>
+<p>weak_ptr不控制对象的生命周期。通常配合shared_ptr使用，可以将shared_ptr的赋值给weak_ptr，而并不会改变引用计数的值，如果shared_ptr存在可以通过lock()成员函数将其提升为一个shared_ptr，否则当所有shared_ptr被析构后，提升会失败，返回false。</p>
+<p>初始化智能指针时，最好不要使用到原始指针，充当中间变量。可以直接在构造函数中直接调用new。可能会导致不必要的问题：如果原始指针ptr，先后被用来构造两个shared_ptr，因为它们不知道彼此的存在，ptr会被delete两次。</p>
+<p>推荐的做法是使用make_unique()&#x2F;make_shared()构造智能指针，但是make_unique()直到C++14才姗姗来迟，原因是在C++11中被忘掉了。<a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/12580432/why-does-c11-have-make-shared-but-not-make-unique">Why does C++11 have <code>make_shared</code> but not <code>make_unique</code> </a>还提供了一个简易的make_unique()实现：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">template</span>&lt;<span class="keyword">typename</span> T, <span class="keyword">typename</span> ...Args&gt;</span></span><br><span class="line"><span class="function">std::unique_ptr&lt;T&gt; <span class="title">make_unique</span><span class="params">( Args&amp;&amp; ...args )</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="keyword">return</span> std::<span class="built_in">unique_ptr</span>&lt;T&gt;( <span class="keyword">new</span> <span class="built_in">T</span>( std::forward&lt;Args&gt;(args)... ) );</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h1 id="当多线程遇上析构函数"><a href="#当多线程遇上析构函数" class="headerlink" title="当多线程遇上析构函数"></a>当多线程遇上析构函数</h1><p>单线程程序中，对象析构是一件很轻松的事情。但是当它遇上多线程时，头疼问题来了，如何保证一个对象正在析构(或者析构以后)，其他的线程不会使用它呢？</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">Foo</span></span><br><span class="line">&#123;</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="built_in">Foo</span> ()  :<span class="built_in">fd_</span>(<span class="built_in">open_file</span>()) &#123; &#125;</span><br><span class="line"></span><br><span class="line">    ~<span class="built_in">Foo</span>()</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="built_in">close</span>(fd_);</span><br><span class="line">        fd_ = <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="type">void</span> <span class="title">write</span><span class="params">()</span></span></span><br><span class="line"><span class="function">    </span>&#123;</span><br><span class="line">        <span class="function">std::lock_guard&lt;std::mutex&gt; <span class="title">lock</span><span class="params">(mutex_)</span></span>;</span><br><span class="line">        <span class="keyword">if</span>(fd_)</span><br><span class="line">            <span class="built_in">write</span>(fd_);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="type">void</span> <span class="title">read</span><span class="params">()</span></span></span><br><span class="line"><span class="function">    </span>&#123;</span><br><span class="line">        <span class="function">std::lock_guard&lt;std::mutex&gt; <span class="title">lock</span><span class="params">(mutex_)</span></span>;</span><br><span class="line">        <span class="keyword">if</span>(fd_)</span><br><span class="line">            std::cout &lt;&lt; <span class="built_in">read</span>(fd) &lt;&lt; std::endl;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">    <span class="type">int</span> fd_;</span><br><span class="line">    std::mutex mutex_;</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line">Foo* foo = <span class="keyword">new</span> Foo;</span><br></pre></td></tr></table></figure>
+
+<p>Foo是一个文件读写的class。为了线程安全，read()和write()操作用mutex保护了起来。有两个线程拥有Foo的对象foo，他们分别对foo保存的资源进行读写操作，在mutex的保护下，它们相安无事。一旦要释放foo对象的时候，如果其中一个线程<code>delete foo</code>，fd_未被保护，如果另外的线程正在read()&#x2F;write()，程序会发生未定义的错误。给析构函数加锁依然不是办法:</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">~<span class="built_in">Foo</span>()</span><br><span class="line">&#123;</span><br><span class="line">    <span class="function">std::lock_guard&lt;std::mutex&gt; <span class="title">lock</span><span class="params">(mutex_)</span></span>;</span><br><span class="line">    <span class="built_in">close</span>(fd_);</span><br><span class="line">    fd_ = <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>此时fd_是被保护了，但是却会引发新的问题：当其中一个线程阻塞在mutex_上的时候，另外一个线程释放了foo,析构函数被调用时，fd_被关闭，但是成员变量mutex_也会随之被销毁。此时，前一个线程阻塞在一个销毁的mutex上，程序依然会出现未定义的错误。对析构函数加不加锁都是悲剧。那如何确保一个线程析构的时候，另一个线程没有使用这个对象呢？</p>
+<p>办法是有的————使用智能指针就能轻松解决这个问题。只需要将<code>Foo* foo = new Foo;</code>改为<code>std::shared_ptr&lt;Foo&gt; foo = std::make_shared(Foo);</code>。工作线程里不需要显式delete，当引用计数(reference count)归0时,foo对象会被自动析构。</p>
+<h1 id="用shared-ptr-实现Copy-On-Write"><a href="#用shared-ptr-实现Copy-On-Write" class="headerlink" title="用shared_ptr 实现Copy-On-Write"></a>用shared_ptr 实现Copy-On-Write</h1><p>陈硕的《Linux多线程服务端编程》介绍了一种利用shared_ptr实现为Copy-on-Write(准确的来说是Copy-On-Race)从而避免死锁的方式。主要原理是：</p>
+<ol>
+<li>shared_ptr的引用计数用来标记当前有几个read&#x2F;write端。</li>
+<li>对于read端，将shared_ptr使用一个栈上的变量保存，此时引用计数加1。</li>
+</ol>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">read</span><span class="params">()</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    std::shared_ptr&lt;Foo&gt; ptr;</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="function">std::lock_guard&lt;std::mutex&gt; <span class="title">lock</span><span class="params">(mutex_)</span></span>;</span><br><span class="line">        ptr = gptr_; <span class="comment">//引用计数增加1</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 使用ptr访问资源</span></span><br><span class="line">    <span class="comment">// 因为ptr占有1个引用计数，可以安全访问，不会被析构</span></span><br><span class="line"></span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<ol start="3">
+<li>对于write端，如果当前的引用计数为1，可以安全的修改对象。</li>
+<li>对于write端，如果当前的引用计数大于1，需要将之前的对象重新复制一份赋值给shared_ptr。</li>
+</ol>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">write</span><span class="params">()</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="function">std::lock_guard&lt;std::mutex&gt; <span class="title">lock</span><span class="params">(mutex_)</span></span>;</span><br><span class="line">    <span class="keyword">if</span>(!gptr_.<span class="built_in">unique</span>())</span><br><span class="line">    &#123;</span><br><span class="line">        gptr_.<span class="built_in">reset</span>(<span class="keyword">new</span> <span class="built_in">XXX</span>(*gptr_));</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 此时可以保证gptr_引用计数为1</span></span><br><span class="line">    <span class="comment">// 修改gptr_的资源</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>此外，以上代码中的mutex_是用来保护shared_ptr的(<a target="_blank" rel="noopener" href="https://blog.csdn.net/solstice/article/details/8547547">为什么多线程读写 shared_ptr 要加锁？</a>)。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>在 C++ 1x 之前，”记得”delete，不是最佳实践。使用智能指针才是减少内存问题的最佳途径。但是智能指针的好处远不仅于此，确保线程安全，实现Copy-On-Write都有它一席之地。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/linux/" rel="tag"># linux</a>
+              <a href="/tags/thread-safety/" rel="tag"># thread-safety</a>
+              <a href="/tags/c/" rel="tag"># c++</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2019/01/20/effective-epoll/" rel="prev" title="Effective epoll">
+      <i class="fa fa-chevron-left"></i> Effective epoll
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2019/02/03/cdc/" rel="next" title="一种基于内容可变长度文件分块算法的实现">
+      一种基于内容可变长度文件分块算法的实现 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%8E%9F%E5%A7%8B%E6%8C%87%E9%92%88%E4%B8%83%E5%AE%97%E7%BD%AA"><span class="nav-number">1.</span> <span class="nav-text">原始指针七宗罪</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%99%BA%E8%83%BD%E6%8C%87%E9%92%88"><span class="nav-number">2.</span> <span class="nav-text">智能指针</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%BD%93%E5%A4%9A%E7%BA%BF%E7%A8%8B%E9%81%87%E4%B8%8A%E6%9E%90%E6%9E%84%E5%87%BD%E6%95%B0"><span class="nav-number">3.</span> <span class="nav-text">当多线程遇上析构函数</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E7%94%A8shared-ptr-%E5%AE%9E%E7%8E%B0Copy-On-Write"><span class="nav-number">4.</span> <span class="nav-text">用shared_ptr 实现Copy-On-Write</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">5.</span> <span class="nav-text">总结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : 'fccf49e5ac9b9496c3591fc97f4d67ee',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>

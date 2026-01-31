@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="很长一段时间，我曾以为像定时器这样基础的功能，操作系统会有一个完备的实现。当需要开启一个定时任务的时候，会有一个优雅的、如下形式的接口： 12typedef void (*callback)(void*);void setTimeout(unsigned int second,callback cb，void* arg); 可是事与愿违，Linux下不存在这样的接口。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Linux下定时器的设计与实现">
+<meta property="og:url" content="https://ilovecpp.com/2019/01/16/timer/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="很长一段时间，我曾以为像定时器这样基础的功能，操作系统会有一个完备的实现。当需要开启一个定时任务的时候，会有一个优雅的、如下形式的接口： 12typedef void (*callback)(void*);void setTimeout(unsigned int second,callback cb，void* arg); 可是事与愿违，Linux下不存在这样的接口。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/timer/clock_gettime.png">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/timer/timer-wheel.png">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/timer/timerfd.png">
+<meta property="article:published_time" content="2019-01-16T11:33:32.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.841Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="linux">
+<meta property="article:tag" content="定时器">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/timer/clock_gettime.png">
+
+<link rel="canonical" href="https://ilovecpp.com/2019/01/16/timer/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Linux下定时器的设计与实现 | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2019/01/16/timer/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Linux下定时器的设计与实现
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-01-16 19:33:32" itemprop="dateCreated datePublished" datetime="2019-01-16T19:33:32+08:00">2019-01-16</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/linux/" itemprop="url" rel="index"><span itemprop="name">linux</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>很长一段时间，我曾以为像定时器这样基础的功能，操作系统会有一个完备的实现。当需要开启一个定时任务的时候，会有一个优雅的、如下形式的接口：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="title function_">void</span> <span class="params">(*callback)</span><span class="params">(<span class="type">void</span>*)</span>;</span><br><span class="line"><span class="type">void</span> <span class="title function_">setTimeout</span><span class="params">(<span class="type">unsigned</span> <span class="type">int</span> second,callback cb，<span class="type">void</span>* arg)</span>;</span><br></pre></td></tr></table></figure>
+<p>可是事与愿违，Linux下不存在这样的接口。<span id="more"></span></p>
+<h1 id="Linux上的定时函数"><a href="#Linux上的定时函数" class="headerlink" title="Linux上的定时函数"></a>Linux上的定时函数</h1><p>要想使用上面那样的定时器功能，我们必须利用Linux上现有的定时通知函数，封装一个定时器。Linux上的定时通知函数五花八门，要封装我们自己的定时器，首先需要选用一个定时通知的函数。查阅资料整理出了Linux上所有的定时函数，如下表：</p>
+<table>
+<thead>
+<tr>
+<th align="left">Function</th>
+<th align="left">Type</th>
+<th align="left">Precision</th>
+<th align="left">Remark</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">sleep(3)</td>
+<td align="left">unsigned int</td>
+<td align="left">second</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">usleep(3)</td>
+<td align="left">useconds_t</td>
+<td align="left">microsecond</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">nanosleep(2)</td>
+<td align="left">struct timespec</td>
+<td align="left">nanosecond</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">clock_nanosleep(2)</td>
+<td align="left">struct timespec</td>
+<td align="left">nanosecond</td>
+<td align="left">It differs in allowing the caller to select the clock against which the sleep interval is to be measured,  and  in  allowingthe sleep interval to be specified as either an absolute or a relative value.</td>
+</tr>
+<tr>
+<td align="left">alarm(2)</td>
+<td align="left">unsigned int</td>
+<td align="left">second</td>
+<td align="left">SIGALRM</td>
+</tr>
+<tr>
+<td align="left">setitimer(2)</td>
+<td align="left">struct itimerval</td>
+<td align="left">microsecond</td>
+<td align="left">SIGALRM</td>
+</tr>
+<tr>
+<td align="left">timer_settime(2)</td>
+<td align="left">struct itimerspec</td>
+<td align="left">nanosecond</td>
+<td align="left">notify method : struct sigevent</td>
+</tr>
+<tr>
+<td align="left">Timerfd API</td>
+<td align="left">File descriptor</td>
+<td align="left">nanosecond</td>
+<td align="left">From linux kernel 2.6.25</td>
+</tr>
+</tbody></table>
+<p>前四个函数比较鸡肋，会让调用线程挂起，原地等待定时器超时，否定。</p>
+<p>alarm()和setitimer()，它们的通知机制采用了信号SIGALRM，由于SIGALRM信号不可靠，会造成超时通知不可靠，而且多线程中处理信号也是一个麻烦事，也不考虑。</p>
+<p>timer_create()&#x2F;timer_settime()系列函数是POSIX规定，精度达到纳秒级，提供了一个数据结构<code>struct sigevent</code>可以指定一个实时信号作为通知信号，同时也可以设置线程ID，将信号传递到指定的线程。相比前两个函数，有了不小的改进，可以作为一个备选的实现，但是可以预见到封装起来不会很轻松。此外使用此系列的函数，需要链接librt库。</p>
+<p>事实上，我们遗漏掉了几个同样具有定时的功能的API——多路复用。在Linux上的多路复用机制有select&#x2F;poll&#x2F;epoll几种，它们轮询时都允许指定一个超时时间，如果在指定时间内，监控的事件没有到达，轮询函数会超时返回。精度也足够用，poll&#x2F;epoll是毫秒级的(millisecond),select超时参数是<code>struct timeval</code>，是微秒级的(microsecond)。</p>
+<p>选择epoll的优势很明显，能将定时功能完美的融入已有的event loop里，同时epoll有着天然的高并发的能力，millisecond级的精度也足够用。</p>
+<h1 id="获取当前时间"><a href="#获取当前时间" class="headerlink" title="获取当前时间"></a>获取当前时间</h1><p>要实现一个定时器，有了定时函数，我们还需要选用一个获取时间的函数。同样地，这些函数我也整理了一下：</p>
+<table>
+<thead>
+<tr>
+<th align="left">Function</th>
+<th align="left">Type</th>
+<th align="left">Precision</th>
+<th align="left">Remark</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">time(2)</td>
+<td align="left">time_t</td>
+<td align="left">second</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">ftime(3)</td>
+<td align="left">struct timeb</td>
+<td align="left">millisecond</td>
+<td align="left">obsolete</td>
+</tr>
+<tr>
+<td align="left">gettimeofday(2)</td>
+<td align="left">struct timeval</td>
+<td align="left">microsecond</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">clock_gettime(2)</td>
+<td align="left">struct timespec</td>
+<td align="left">nanosecond</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">Time Stamp Counter</td>
+<td align="left">64-bit register</td>
+<td align="left">CPU related</td>
+<td align="left">on all x86 processors since the Pentium(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Time_Stamp_Counter">TSC</a>)</td>
+</tr>
+</tbody></table>
+<p>time()精度太低，不合适。</p>
+<p>ftime() 毫秒级精度，但是被废弃了，也不合适。</p>
+<p>gettimeofday() 精度达到微秒级，并且在x86-64平台上该函数的调用不是系统调用(vdso)，似乎很合适，不幸的是POSIX.1-2008中也将这个函数废弃了。</p>
+<p>Time Stamp Counter 使用汇编指定获取时间戳的计数器，精度应该是最高的，效率<em>可能</em>也应该是最高的，一条汇编指令<code>rdtscp</code>(相比<code>rdtsc</code>，rdtscp可以避免，因为cpu乱序执行带来的误差问题)即可。是可以作为一个选择的，腾讯的<code>libco</code>就是优先使用这个方法获取时间的。</p>
+<p>clock_gettime() 。默认是nanosecond 级精度，是系统调用(_sys_clock_gettime())，会有开销。调用频繁的话，可能造成损失性能。但是Linux 2.6.32后可以指定参数<code>CLOCK_REALTIME_COARSE</code>和<code>CLOCK_MONOTONIC_COARSE</code>，粗粒度地获取时间，而不需要发生上下文切换(和gettimeofday()一样也是vdso技术，<a target="_blank" rel="noopener" href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux_for_real_time/7/html/reference_guide/sect-posix_clocks#CLOCK_MONOTONIC_COARSE_and_CLOCK_REALTIME_COARSE">https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux_for_real_time&#x2F;7&#x2F;html&#x2F;reference_guide&#x2F;sect-posix_clocks#CLOCK_MONOTONIC_COARSE_and_CLOCK_REALTIME_COARSE</a>)。使用<code>_COARSE</code>后缀获取的时间，精度是millisecond级。对我们来说也够用了。</p>
+<p>要对clock_gettime系统调用的开销有一个直观的感受的话可以，借助于<code>strace</code>工具，利用<code>-T</code>参数可以追踪每个系统调用的时间开销，比我我的环境上<code>CLOCK_MONOTONIC</code>获取时间的开销大概是50微秒</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/timer/clock_gettime.png" alt="clock"></p>
+<p>换成<code>CLOCK_MONOTONIC_COARSE</code>方式再去获取时间，用strace就追踪不到了。</p>
+<h1 id="定时器的设计"><a href="#定时器的设计" class="headerlink" title="定时器的设计"></a>定时器的设计</h1><p>有了获取时间函数clock_gettime和定时函数epoll之后，我们就可以开始设计定时器了。首先明确一点，epoll和其他的定时通知函数一样，一次也只能设置一个超时时间，依然不能满足我开篇提出的需求。</p>
+<p>主流的做法是利用一个容器保存所有设置的超时时间，将容器里最快的超时的时间设置为epoll_wait的超时时间。比如，我先后设置了1400ms,800ms,300ms,2900ms，那么下一次事件循环就将epoll_wait的第四个参数设置为300ms。</p>
+<p>如果用链表保存的话，每次设置定时器都要遍历一遍链表才能选到最快超时的那个时间，复杂度太高，如果设置了定时器特别多的话，这样的开销不能接受。</p>
+<p>要像O(1)的时间获取到最小的哪个值，用最小堆保存超时时间正合适，效率大大提高。事实上libevent就是这么实现的(C语言实现的min_heap_t)。</p>
+<h2 id="最小堆实现"><a href="#最小堆实现" class="headerlink" title="最小堆实现"></a>最小堆实现</h2><p>先实现一个类<code>Timer</code>表示每一个被添加的定时，构造时需要一个millisecond为单位的超时时间，一个回调函数，一个回调函数的参数。为了简化实现，我测试用的超时的回调函数，并未使用回调函数的参数，但也没有去掉，仅仅是占个坑的作用。本来是想打算把args抽象，将Timer写成模板类，防止本末倒置，本文仅为演示定时器的实现，越简单越好。</p>
+<p><code>expire</code>时间用的是相对系统启动的时间,是一个不可以设置的恒定的时间(nonsettable monotonic clock)，而不是用的真实的时间(Wall time ，墙上时间)，因为这个时间可能会随着设置系统的日期时间而发生跳跃性的改变。</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">Timer</span></span><br><span class="line">&#123;</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="built_in">Timer</span>(<span class="type">unsigned</span> <span class="type">long</span> <span class="type">long</span> expire, std::function&lt;<span class="built_in">void</span>(<span class="type">void</span>)&gt; fun, <span class="type">void</span> *args)</span><br><span class="line">        : <span class="built_in">expire_</span>(expire), <span class="built_in">fun</span>(fun)&#123;    &#125;</span><br><span class="line">    <span class="function"><span class="keyword">inline</span> <span class="type">void</span> <span class="title">active</span><span class="params">()</span> </span>&#123; <span class="built_in">fun</span>(); &#125;</span><br><span class="line">    <span class="function"><span class="keyword">inline</span> <span class="type">unsigned</span> <span class="type">long</span> <span class="type">long</span> <span class="title">getExpire</span><span class="params">()</span> <span class="type">const</span></span>&#123; <span class="keyword">return</span> expire_; &#125;</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">    std::function&lt;<span class="type">void</span>(<span class="type">void</span>)&gt; fun;</span><br><span class="line">    <span class="type">void</span> *args;</span><br><span class="line">    <span class="type">unsigned</span> <span class="type">long</span> <span class="type">long</span> expire_;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p><code>TimerManager</code>是用户操作的接口，提供增加，删除定时器的功能。STL中提供能<a target="_blank" rel="noopener" href="https://en.cppreference.com/w/cpp/container/priority_queue">优先队列</a>，直接可以拿来用。</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">TimerManager</span></span><br><span class="line">&#123;</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="built_in">TimerManager</span>() &#123;&#125;</span><br><span class="line"></span><br><span class="line">    <span class="function">Timer *<span class="title">addTimer</span><span class="params">(<span class="type">int</span> timeout, std::function&lt;<span class="type">void</span>(<span class="type">void</span>)&gt; fun, <span class="type">void</span> *args = <span class="literal">NULL</span>)</span></span>;</span><br><span class="line">    <span class="function"><span class="type">void</span> <span class="title">delTimer</span><span class="params">(Timer* timer)</span></span>;</span><br><span class="line">    <span class="function"><span class="type">unsigned</span> <span class="type">long</span> <span class="type">long</span> <span class="title">getRecentTimeout</span><span class="params">()</span></span>;</span><br><span class="line">    <span class="function"><span class="type">void</span> <span class="title">takeAllTimeout</span><span class="params">()</span></span>;</span><br><span class="line">    <span class="function"><span class="type">unsigned</span> <span class="type">long</span> <span class="type">long</span> <span class="title">getCurrentMillisecs</span><span class="params">()</span></span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">    <span class="keyword">struct</span> <span class="title class_">cmp</span></span><br><span class="line">    &#123;</span><br><span class="line">        <span class="function"><span class="type">bool</span> <span class="title">operator</span><span class="params">()</span><span class="params">(Timer*&amp; lhs, Timer*&amp; rhs)</span> <span class="type">const</span> </span>&#123; <span class="keyword">return</span> lhs-&gt;<span class="built_in">getExpire</span>() &gt; rhs-&gt;<span class="built_in">getExpire</span>(); &#125;</span><br><span class="line">    &#125;;</span><br><span class="line">    std::priority_queue&lt;Timer*,std::vector&lt;Timer*&gt;,cmp&gt; queue_;</span><br><span class="line">&#125;;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>addTimer()参数和Timer构造函数一直，实现就是构造一个Timer然后加入到std::priority_queue后，返回Timer指针。</p>
+<p>delTimer() 删除一个指定的Timer，由于priority_queue没有提供erease()接口，因此删除Timer的操作，我这里采用了新建一个priority_queue的做法，复杂度O(n)。</p>
+<p>getRecentTimeout()获取一个最近的超时时间(超时时间 &#x3D; 优先队列里的时间 - 当前获取的系统启动时间)。如果这个值小于0，那么说明这个定时器已经超时了，将其置为0，稍后的epoll_wait将会立马返回。</p>
+<p>takeAllTimeout() 函数，处理超时的定时，并回调其绑定的回调函数。由于超时的可能不止一个定时，需要用一个循环遍历所有超时的Timer，一一处理。</p>
+<p>getCurrentMillisecs()对clock_gettime()的封装，获取到的<code>struct timespec</code>转换为millisecond。</p>
+<p>这两个类的完整实现，我放到了Github上了:<a target="_blank" rel="noopener" href="https://gist.github.com/baixiangcpp/b2199f1f1c7108f22f47d2ca617f6960">https://gist.github.com/baixiangcpp/b2199f1f1c7108f22f47d2ca617f6960</a>。使用的时候，只需要在你的主循环里，把epoll_wait的超时参数设置为TimerManager::getRecentTimeout()，每次epoll_wait()返回后，处理一下超时事件TimerManager::takeAllTimeout()。</p>
+<p>使用示例：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">int</span> <span class="title">dispatch</span><span class="params">()</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    ...</span><br><span class="line">    TimerManager tm;</span><br><span class="line">    tm.<span class="built_in">addTimer</span>(<span class="number">1000</span>, []() &#123; std::cout &lt;&lt; <span class="string">&quot;hello world&quot;</span> &lt;&lt; std::endl; &#125;, <span class="literal">NULL</span>);</span><br><span class="line">    tm.<span class="built_in">addTimer</span>(<span class="number">5000</span>, []() &#123; std::cout &lt;&lt; <span class="string">&quot;hello baixiancpp&quot;</span> &lt;&lt; std::endl; &#125;, <span class="literal">NULL</span>);</span><br><span class="line">    <span class="keyword">for</span>(;;)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="type">int</span> ret = <span class="built_in">epoll_wait</span>(epollfd,events,events_num,tm.<span class="built_in">getRecentTimeout</span>());</span><br><span class="line">        tm.<span class="built_in">takeAllTimeout</span>();</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="时间轮实现"><a href="#时间轮实现" class="headerlink" title="时间轮实现"></a>时间轮实现</h2><p>另外一种常见的定时器设计使用的存放超时时间的容器叫做”时间轮”。微信的开源项目libco中使用的就是这种数据结构。</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/timer/timer-wheel.png" alt="timer wheel"></p>
+<p>对于时间轮的实现，Timer依然是存放在链表上，但是借助了hash的思想，将相同间隔(或者相同周期的整数倍)的超时Timer放在同一个时间轮子上的槽(slot)上。时间轮上有一个指针，按照一个基准的频率(比如1ms,5ms,10ms等，libco中设置的是1ms)向前移动。这个基准的频率就是传递给epoll_wait()超时的值，也<code>是定时器精度的基本单位</code>。</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">Timer</span></span><br><span class="line">&#123;</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="built_in">Timer</span>(<span class="type">int</span> rotations,<span class="type">int</span> slot,std::function&lt;<span class="built_in">void</span>(<span class="type">void</span>)&gt; fun,<span class="type">void</span>* args)</span><br><span class="line">        : <span class="built_in">rotations_</span>(rotations),<span class="built_in">slot_</span>(slot),<span class="built_in">fun</span>(fun) &#123; &#125;</span><br><span class="line">    <span class="function"><span class="keyword">inline</span> <span class="type">int</span> <span class="title">getRotations</span><span class="params">()</span> </span>&#123; <span class="keyword">return</span> rotations_; &#125;</span><br><span class="line">    <span class="function"><span class="keyword">inline</span> <span class="type">void</span> <span class="title">decreaseRotations</span><span class="params">()</span> </span>&#123; --rotations_; &#125;</span><br><span class="line">    <span class="function"><span class="keyword">inline</span> <span class="type">void</span> <span class="title">active</span><span class="params">()</span> </span>&#123; <span class="built_in">fun</span>(); &#125;</span><br><span class="line">    <span class="function"><span class="keyword">inline</span> <span class="type">int</span> <span class="title">getSlot</span><span class="params">()</span> </span>&#123; <span class="keyword">return</span> slot_; &#125;</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">    <span class="type">int</span> rotations_;</span><br><span class="line">    <span class="type">int</span> slot_;</span><br><span class="line">    std::function&lt;<span class="type">void</span>(<span class="type">void</span>)&gt; fun;</span><br><span class="line">    <span class="type">void</span>* args;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p>时间轮中的<code>Timer</code>类和最小堆中的实现，多了两个参数，rotations表示时间轮转多少圈后当前的Timer会触发，slot表示当前的Timer应该挂在对应的槽指向的链表上。成员函数比较简单，不多赘述。</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">TimeWheel</span></span><br><span class="line">&#123;</span><br><span class="line">  <span class="keyword">public</span>:</span><br><span class="line">    <span class="built_in">TimeWheel</span>(<span class="type">int</span> nslots)</span><br><span class="line">        : <span class="built_in">nslosts_</span>(nslots),<span class="built_in">curslot_</span>(<span class="number">0</span>),</span><br><span class="line">            <span class="built_in">slots_</span>(nslosts_,std::<span class="built_in">vector</span>&lt;Timer*&gt;()),<span class="built_in">starttime_</span>(<span class="built_in">getCurrentMillisecs</span>()) &#123; &#125;</span><br><span class="line">    ~<span class="built_in">TimeWheel</span>();</span><br><span class="line">    <span class="function"><span class="type">unsigned</span> <span class="type">long</span> <span class="type">long</span> <span class="title">getCurrentMillisecs</span><span class="params">()</span></span>;</span><br><span class="line">    <span class="function">Timer *<span class="title">addTimer</span><span class="params">(<span class="type">int</span> timeout,std::function&lt;<span class="type">void</span>(<span class="type">void</span>)&gt; fun,<span class="type">void</span>* args)</span></span>;</span><br><span class="line">    <span class="function"><span class="type">void</span> <span class="title">delTimer</span><span class="params">(Timer *timer)</span></span>;</span><br><span class="line">    <span class="function"><span class="type">void</span> <span class="title">tick</span><span class="params">()</span></span>;</span><br><span class="line">    <span class="function"><span class="type">void</span> <span class="title">takeAllTimeout</span><span class="params">()</span></span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">    <span class="type">int</span> nslosts_;</span><br><span class="line">    <span class="type">int</span> curslot_;</span><br><span class="line">    <span class="type">unsigned</span> <span class="type">long</span> <span class="type">long</span> starttime_;</span><br><span class="line">    std::vector&lt;std::vector&lt;Timer*&gt;&gt; slots_;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p>curslot_表示时间轮当前指向的那个slot。nslosts_表示这个时间轮拥有多少个slot，不要上图迷惑了，实际上slot会远远超过这8个。要想效率足够高，slot就要越大，当然占用的内存也会越大(现代计算机，这点内存可以忽略不计)，libco默认使用了 60 * 1000 个slot 。</p>
+<p>addTimer()是添加一个Timer到TimeWheel上，需要根据传递的timeout参数，计算出该Timer所对应的slot (<code>slot = (curslot_ + (timeout % nslosts_)) % nslosts_;</code>) ,还有到这个Timer超时时间轮的指针需要转过的圈数(<code>timeout / nslosts_</code>)。</p>
+<p>delTimer() 根据Timer*参数，删除时间轮上对应的Timer。</p>
+<p>tick() 时间轮的指针走动一下。同时遍历当前slot上链表里的每一个Timer，如果Timer的圈数大于0，将Timer里的圈数-1，否则激活这个Timer。</p>
+<p>takeAllTimeout() 是必要的，由于误差的存在，每次epoll_wait超时后(一个基准频率)，时间轮可能需要走动好几步。如果每次epoll_wait后直接tick()而不是takeAllTimeout()，会导致误差一直被累积，时间轮上剩余的定时器被滞后触发。</p>
+<p>时间轮的实现我也放到了Github上:<a target="_blank" rel="noopener" href="https://gist.github.com/baixiangcpp/63278c0087201a655f940ab8de543abd">https://gist.github.com/baixiangcpp/63278c0087201a655f940ab8de543abd</a>。使用方式和之前的最小堆实现的基本是一样的。</p>
+<p>使用示例：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">int</span> <span class="title">dispatch</span><span class="params">()</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    ...</span><br><span class="line">    <span class="function">TimeWheel <span class="title">tw</span><span class="params">(<span class="number">60</span> * <span class="number">1000</span>)</span></span>;</span><br><span class="line">    tw.<span class="built_in">addTimer</span>(<span class="number">1000</span>, []() &#123; std::cout &lt;&lt; <span class="string">&quot;hello world&quot;</span> &lt;&lt; std::endl; &#125;, <span class="literal">NULL</span>);</span><br><span class="line">    tw.<span class="built_in">addTimer</span>(<span class="number">5000</span>, []() &#123; std::cout &lt;&lt; <span class="string">&quot;hello baixiancpp&quot;</span> &lt;&lt; std::endl; &#125;, <span class="literal">NULL</span>);</span><br><span class="line">    <span class="keyword">for</span>(;;)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="type">int</span> ret = <span class="built_in">epoll_wait</span>(epollfd,events,events_num,<span class="number">1</span>); <span class="comment">// 基准频率 1ms</span></span><br><span class="line">        <span class="comment">// tw.tick(); 不要这么做，会导致误差累积</span></span><br><span class="line">        tw.<span class="built_in">takeAllTimeout</span>();</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>最小堆和时间轮的时间复杂度，如下：</p>
+<p>| Type  | add | exec |<br>| :- | :- | :- | :-|<br>| list   | O(1) | O(n) |<br>| min-heap  | O(lgn) | O(1) |<br>| time wheel | O(1) | O(n) | </p>
+<p>这里我只列出添加定时器和触发定时器的时间复杂度，因为这几种实现中，删除一个定时器可以优化到O(1)的时间复杂度————把其对应的回调函数置空。前面的例子我没有这么做，仅为展示，有兴趣的话可以自行修改。</p>
+<p>乍看下来，时间轮的复杂度和链表是一样的。其实不然，时间轮上触发一个定时器，仅仅是理论上的O(n),只要slot的数量设置合理，时间复杂度会下降至接近O(1)。</p>
+<p>可以根据实际需要，选择合适的定时器容器。</p>
+<h1 id="要不要用Timerfd？"><a href="#要不要用Timerfd？" class="headerlink" title="要不要用Timerfd？"></a>要不要用Timerfd？</h1><p>开篇的表格里有提到，从Linux2.6.25开始，timerfd系列API，带来了一种全新的定时机制。把超时事件转换为了文件描述符，当超时发生后该文件描述符会变成可读。于是超时事件就变成了普通的IO事件。如果未对timerfd设置阻塞，对其read操作会一直阻塞到超时发生。此外timerfd的精度达到了纳秒级。不考虑跨平台等因素，这是一个非常不错的选择。</p>
+<p>libevent2.1的源码里也支持timerfd了，在<a target="_blank" rel="noopener" href="https://raw.githubusercontent.com/libevent/libevent/master/whatsnew-2.1.txt">版本说明</a>里也很明确了说明了使用多路复用的超时参数和使用timerfd之间的差异 ，它使用了两个词”efficient”和”precise”，分别表示这种实现之间的差异，我想着这还是非常有说服力的。</p>
+<h2 id="每个超时事件独享一个timerfd"><a href="#每个超时事件独享一个timerfd" class="headerlink" title="每个超时事件独享一个timerfd"></a>每个超时事件独享一个timerfd</h2><p>如果对于每一个超时事件都用timerfd_create()创建一个对应的fd，放到epoll中统一管理。这样的做法是不合适的。每增加一个定时事件，都需要额外的3个系统调用:</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/timer/timerfd.png" alt="timerfd"></p>
+<p>此外，文件描述符还是稀缺的资源，每个进程能够使用的文件描述符是受系统限制的，如果定时器过多，会造成严重的浪费。</p>
+<p>这种方式的定时器，比较容易实现，这里我就不再浪费篇幅了。</p>
+<h2 id="所有超时事件共享一个timerfd"><a href="#所有超时事件共享一个timerfd" class="headerlink" title="所有超时事件共享一个timerfd"></a>所有超时事件共享一个timerfd</h2><p>libevent就是使用的这种方式。定时时间仍然使用最小堆来保存，每个event loop共享同一个timerfd。每次事件循环之前，取出最近的一个超时的时间，将这个timerfd设置为这个超时时间。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">epoll_dispatch</span><span class="params">( ...)</span></span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    <span class="keyword">if</span> (epollop-&gt;timerfd &gt;= <span class="number">0</span>)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="class"><span class="keyword">struct</span> <span class="title">itimerspec</span> <span class="title">is</span>;</span></span><br><span class="line">        is.it_value.tv_sec = tv-&gt;tv_sec;</span><br><span class="line">        is.it_value.tv_nsec = tv-&gt;tv_usec * <span class="number">1000</span>;</span><br><span class="line">        timerfd_settime(epollop-&gt;timerfd, <span class="number">0</span>, &amp;is, <span class="literal">NULL</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    res = epoll_wait(epollop-&gt;epfd, events, epollop-&gt;nevents, <span class="number">-1</span>);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; res; i++) </span><br><span class="line">    &#123;</span><br><span class="line">        <span class="keyword">if</span> (events[i].data.fd == epollop-&gt;timerfd)</span><br><span class="line">            ;<span class="comment">//</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这样的改进规避了前一种方式提到的造成文件描述符资源浪费的问题，仅仅需要1个额外的文件描述符。</p>
+<p>额外的系统调用从额外的3个，降到了1个。而且还有改进的空间，只有当栈顶的timeout变化时，才调用timerfd_settime()改变。</p>
+<p>这种方式实现的定时器，精度提高了但是多了1个额外的系统调用。libevent把选择权给了用户，用户可以根据实际情况在创建event base的时候是否配置<code>EVENT_BASE_FLAG_PRECISE_TIMER</code>宏而选择使用哪个定时器实现。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>std::priority_queue是一个容器适配器，底层的容器默认使用的std::vector(<a target="_blank" rel="noopener" href="https://en.cppreference.com/w/cpp/algorithm/make_heap">make_heap()</a>)。但是这不意味着往std::priority_queue插入一个元素的开销是O(n)，C++标准对此实现有要求，可以放心大胆的去用。但是std::priority_queue没有提供高效删除元素的接口，我们可以通过将回调函数置空的方式，以O(1)的时间复杂度实现删除。</p>
+<p>以C++实现的muduo网络库使用的是std::set集合存放Timer：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> std::pair&lt;Timestamp, Timer*&gt; Entry;</span><br><span class="line"><span class="keyword">typedef</span> std::set&lt;Entry&gt; TimerList;</span><br><span class="line">TimerList timers_;</span><br></pre></td></tr></table></figure>
+
+<p>实际上std::set实现应该是二叉搜索树，因此效率可能会比用std::priority_queue略差一点（《linux多线程网络编程》 8.2 ）。</p>
+<p>此外，<a target="_blank" rel="noopener" href="http://software.schmorp.de/pkg/libev.html">libev</a> 允许使用一个宏<code>EV_USE_4HEAP</code>指定以一个4-heap的数据结构保存定时器，<em>据说</em>效率更高，我也没有测试。</p>
+<p>以上就是目前一些c&#x2F;c++语言实现的网络库里边定时器常用的设计手法。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/linux/" rel="tag"># linux</a>
+              <a href="/tags/%E5%AE%9A%E6%97%B6%E5%99%A8/" rel="tag"># 定时器</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2018/12/19/coroutine/" rel="prev" title="协程那些事儿">
+      <i class="fa fa-chevron-left"></i> 协程那些事儿
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2019/01/20/effective-epoll/" rel="next" title="Effective epoll">
+      Effective epoll <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Linux%E4%B8%8A%E7%9A%84%E5%AE%9A%E6%97%B6%E5%87%BD%E6%95%B0"><span class="nav-number">1.</span> <span class="nav-text">Linux上的定时函数</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%8E%B7%E5%8F%96%E5%BD%93%E5%89%8D%E6%97%B6%E9%97%B4"><span class="nav-number">2.</span> <span class="nav-text">获取当前时间</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%AE%9A%E6%97%B6%E5%99%A8%E7%9A%84%E8%AE%BE%E8%AE%A1"><span class="nav-number">3.</span> <span class="nav-text">定时器的设计</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%9C%80%E5%B0%8F%E5%A0%86%E5%AE%9E%E7%8E%B0"><span class="nav-number">3.1.</span> <span class="nav-text">最小堆实现</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%97%B6%E9%97%B4%E8%BD%AE%E5%AE%9E%E7%8E%B0"><span class="nav-number">3.2.</span> <span class="nav-text">时间轮实现</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%A6%81%E4%B8%8D%E8%A6%81%E7%94%A8Timerfd%EF%BC%9F"><span class="nav-number">4.</span> <span class="nav-text">要不要用Timerfd？</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%AF%8F%E4%B8%AA%E8%B6%85%E6%97%B6%E4%BA%8B%E4%BB%B6%E7%8B%AC%E4%BA%AB%E4%B8%80%E4%B8%AAtimerfd"><span class="nav-number">4.1.</span> <span class="nav-text">每个超时事件独享一个timerfd</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%89%80%E6%9C%89%E8%B6%85%E6%97%B6%E4%BA%8B%E4%BB%B6%E5%85%B1%E4%BA%AB%E4%B8%80%E4%B8%AAtimerfd"><span class="nav-number">4.2.</span> <span class="nav-text">所有超时事件共享一个timerfd</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">5.</span> <span class="nav-text">总结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : '38a4fe27f0710af5270d80b307a93946',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="最近看《Linux高性能服务端编程》一书，书上对条件变量的封装比较有意思:作者通过这样奇怪的封装，将mutex隐藏到在cond类里边。但是，这样封装的条件变量是不能正常使用的。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="正确封装条件变量不容易">
+<meta property="og:url" content="https://ilovecpp.com/2018/09/29/condition/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="最近看《Linux高性能服务端编程》一书，书上对条件变量的封装比较有意思:作者通过这样奇怪的封装，将mutex隐藏到在cond类里边。但是，这样封装的条件变量是不能正常使用的。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/condition/cond.png">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/condition/deadlock.png">
+<meta property="article:published_time" content="2018-09-29T11:43:35.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.839Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="linux">
+<meta property="article:tag" content="mutex">
+<meta property="article:tag" content="condition">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/condition/cond.png">
+
+<link rel="canonical" href="https://ilovecpp.com/2018/09/29/condition/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>正确封装条件变量不容易 | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2018/09/29/condition/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          正确封装条件变量不容易
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2018-09-29 19:43:35" itemprop="dateCreated datePublished" datetime="2018-09-29T19:43:35+08:00">2018-09-29</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/linux/" itemprop="url" rel="index"><span itemprop="name">linux</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>最近看《Linux高性能服务端编程》一书，书上对条件变量的封装比较有意思:<br><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/condition/cond.png" alt="cond"><br>作者通过这样奇怪的封装，将mutex隐藏到在cond类里边。但是，这样封装的条件变量是不能正常使用的。<span id="more"></span></p>
+<h1 id="mutex到底用来保护什么？"><a href="#mutex到底用来保护什么？" class="headerlink" title="mutex到底用来保护什么？"></a>mutex到底用来保护什么？</h1><p>通常在程序里，我们使用条件变量来表示等待”某一条件”的发生。虽然名叫”条件变量”，但是它本身并不保存条件状态，本质上条件变量仅仅是一种通讯机制：当有一个线程在等待(pthread_cond_wait)某一条件变量的时候，会将当前的线程挂起，直到另外的线程发送信号(pthread_cond_signal)通知其解除阻塞状态。</p>
+<p>由于要用额外的共享变量保存条件状态(这个变量可以是任何类型比如bool)，由于这个变量会同时被不同的线程访问，因此需要一个额外的mutex保护它。</p>
+<p>《Linux系统编程手册》也有这个问题的介绍：</p>
+<blockquote>
+<p>A condition variable is always used in conjunction with a mutex. The mutex provides mutual exclusion for accessing the shared variable, while the condition variable is used to signal changes in the variable’s state. </p>
+</blockquote>
+<p>条件变量总是结合mutex使用，条件变量就共享变量的状态改变发出通知，mutex就是用来保护这个共享变量的。</p>
+<h1 id="为什么pthread-cond-wait-需要mutex参数"><a href="#为什么pthread-cond-wait-需要mutex参数" class="headerlink" title="为什么pthread_cond_wait()需要mutex参数?"></a>为什么pthread_cond_wait()需要mutex参数?</h1><p>首先，我们使用条件变量的接口实现一个简单的生产者-消费者模型，avail就是保存条件状态的共享变量，它对生产者线程、消费者线程均可见。不考虑错误处理，先看生产者实现：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">pthread_mutex_lock(&amp;mutex);</span><br><span class="line">avail++;</span><br><span class="line">pthread_mutex_unlock(&amp;mutex);</span><br><span class="line"></span><br><span class="line">pthread_cond_signal(&amp;cond); <span class="comment">/* Wake sleeping consumer */</span></span><br></pre></td></tr></table></figure>
+
+<p>因为avail对两个线程都可见，因此对其修改均应该在mutex的保护之下，再来看消费者线程实现：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> (;;)</span><br><span class="line">&#123;</span><br><span class="line">    pthread_mutex_lock(&amp;mutex);</span><br><span class="line">    <span class="keyword">while</span> (avail == <span class="number">0</span>)</span><br><span class="line">        pthread_cond_wait(&amp;cond, &amp;mutex);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">while</span> (avail &gt; <span class="number">0</span>)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="comment">/* Do something */</span></span><br><span class="line">        avail--;</span><br><span class="line">    &#125;</span><br><span class="line">    pthread_mutex_unlock(&amp;mutex);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>当”avail&#x3D;&#x3D;0”时，消费者线程会阻塞在pthread_cond_wait()函数上。如果pthread_cond_wait()仅需要一个pthread_cond_t参数的话，此时mutex已经被锁，要是不先将mutex变量解锁，那么其他线程(如生产者线程)永远无法访问avail变量，也就无法继续生产，消费者线程会一直阻塞下去。因此pthread_cond_wait()需要传递给它一个pthread_mutex_t类型的变量。</p>
+<p>pthread_cond_wait()函数首先大致会分为3个部分：</p>
+<p>1.解锁互斥量mutex<br>2.阻塞调用线程，直到当前的条件变量收到通知<br>3.重新锁定互斥量mutex</p>
+<p>其中1和2是原子操作，也就是说在pthread_cond_wait()调用线程陷入阻塞之前其他的线程无法获取当前的mutex，也就不能就该条件变量发出通知。</p>
+<h1 id="虚假唤醒"><a href="#虚假唤醒" class="headerlink" title="虚假唤醒"></a>虚假唤醒</h1><p>前面判断条件状态的时候<code>avail &gt; 0</code>放在了while循环中，而不是if中，这是因为pthread_cond_wait()阻塞在条件变量上的时候，即使其他的线程没有就该条件变量发出通知(pthread_cond_signal()&#x2F;pthread_cond_broadcast())，条件变量也有可能会自己醒来(pthread_cond_wait()函数返回)，因此需要重新检查一下共享变量上的条件成不成立，确保条件变量是真的收到了通知，否则继续阻塞等待。关于虚假唤醒的相关介绍，可以戳这里查看维基百科下面的几个引用：<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Spurious_wakeup">https://en.wikipedia.org/wiki/Spurious_wakeup</a>。</p>
+<h1 id="开篇条件变量的封装的问题"><a href="#开篇条件变量的封装的问题" class="headerlink" title="开篇条件变量的封装的问题"></a>开篇条件变量的封装的问题</h1><p>结合前面的3节，我们总结了pthread_cond_wait()使用时，必须遵守的几个法则：</p>
+<p>1.必须结合mutex使用，mutex用于保护共享变量，而不是保护pthread_cond_wait()的某些内部操作<br>2.mutex上锁后，才能调用pthread_cond_wait()<br>3.条件状态判断要放在while()循环里，然后再pthread_cond_wait()</p>
+<p>如果这么使用，就不会再用错条件变量了。现在回到开篇的源码上，它是这么封装wait操作的:</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">cond</span></span><br><span class="line">&#123;</span><br><span class="line">  <span class="keyword">public</span>:</span><br><span class="line">    <span class="function"><span class="type">bool</span> <span class="title">wait</span><span class="params">()</span></span></span><br><span class="line"><span class="function">    </span>&#123;</span><br><span class="line">        <span class="type">int</span> ret = <span class="number">0</span>;</span><br><span class="line">        <span class="built_in">pthread_mutex_lock</span>(&amp;m_mutex);</span><br><span class="line">        ret = <span class="built_in">pthread_cond_wait</span>(&amp;m_cond, &amp;m_mutex);</span><br><span class="line">        <span class="built_in">pthread_mutex_unlock</span>(&amp;m_mutex);</span><br><span class="line">        <span class="keyword">return</span> ret == <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="type">bool</span> <span class="title">signal</span><span class="params">()</span></span></span><br><span class="line"><span class="function">    </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="built_in">pthread_cond_signal</span>(&amp;m_cond) == <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">private</span>:</span><br><span class="line">    <span class="type">pthread_mutex_t</span> m_mutex;</span><br><span class="line">    <span class="type">pthread_cond_t</span> m_cond;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+<p>这段代码大致上有2个问题，首先，wait()函数直接将mutex隐藏到其实现里边，这里的mutex完全没发挥作用，没有保护任何的东西，仅仅是为了适配pthread_cond_wait()接口。如果仅仅只有这个问题那也罢了，最多损失一下性能多几下mutex加锁解锁的消耗。</p>
+<p>更糟糕的是，这会导致死锁，我们先来使用一下这里封装的条件变量:</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">cond c;</span><br><span class="line"><span class="type">bool</span> flag = <span class="literal">false</span>;</span><br><span class="line">std::mutex mutex;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">foo</span><span class="params">()</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="function">std::lock_guard&lt;std::mutex&gt; <span class="title">guard</span><span class="params">(mutex)</span></span>;</span><br><span class="line">    <span class="keyword">while</span>(!flag)</span><br><span class="line">        c.<span class="built_in">wait</span>();</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">bar</span><span class="params">()</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="function">std::lock_guard&lt;std::mutex&gt; <span class="title">guard</span><span class="params">(mutex)</span></span>;</span><br><span class="line">    flag = <span class="literal">true</span>;</span><br><span class="line">    c.<span class="built_in">signal</span>();</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="function">std::thread <span class="title">t1</span><span class="params">(foo)</span></span>;</span><br><span class="line">    <span class="function">std::thread <span class="title">t2</span><span class="params">(bar)</span></span>;</span><br><span class="line">    </span><br><span class="line">    t<span class="number">1.</span><span class="built_in">join</span>();</span><br><span class="line">    t<span class="number">2.</span><span class="built_in">join</span>();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>编译运行，程序死锁了，gdb attach上去看到了这样的堆栈：</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/condition/deadlock.png" alt="deadlock"></p>
+<p>foo()此时阻塞在pthread_cond_wait()上，pthread_cond_wait()已经将条件变量内部封装的m_mutex解锁了，但是std::lock_guard维护的std::mutex还未解锁。再看bar()线程，此时它正阻塞在std::lock_guard上对std::mutex加锁(堆栈里看到在linux平台是std::mutex就是用POSIX mutex实现的)。于是这样就产生了死锁：</p>
+<p>1.foo()阻塞等待bar()线程通知改变其所等待的条件变量<br>2.bar()在等foo()解锁std::mutex,以改变条件状态flag</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>那么如何封装条件变量呢，可以参考C++11标准库的接口设计，将mutex放出来，在wait的时候当参数传入:<a target="_blank" rel="noopener" href="https://en.cppreference.com/w/cpp/thread/condition_variable/wait">https://en.cppreference.com/w/cpp/thread/condition_variable&#x2F;wait</a>，这里不多赘述了。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/linux/" rel="tag"># linux</a>
+              <a href="/tags/mutex/" rel="tag"># mutex</a>
+              <a href="/tags/condition/" rel="tag"># condition</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2018/07/26/backlog/" rel="prev" title="对知乎问题'listen(2)系统调用的backlog参数无效？'的一次实验">
+      <i class="fa fa-chevron-left"></i> 对知乎问题'listen(2)系统调用的backlog参数无效？'的一次实验
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2018/11/01/thread-safe/" rel="next" title="当谈论线程安全时，我们在谈论什么">
+      当谈论线程安全时，我们在谈论什么 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#mutex%E5%88%B0%E5%BA%95%E7%94%A8%E6%9D%A5%E4%BF%9D%E6%8A%A4%E4%BB%80%E4%B9%88%EF%BC%9F"><span class="nav-number">1.</span> <span class="nav-text">mutex到底用来保护什么？</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88pthread-cond-wait-%E9%9C%80%E8%A6%81mutex%E5%8F%82%E6%95%B0"><span class="nav-number">2.</span> <span class="nav-text">为什么pthread_cond_wait()需要mutex参数?</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%99%9A%E5%81%87%E5%94%A4%E9%86%92"><span class="nav-number">3.</span> <span class="nav-text">虚假唤醒</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%BC%80%E7%AF%87%E6%9D%A1%E4%BB%B6%E5%8F%98%E9%87%8F%E7%9A%84%E5%B0%81%E8%A3%85%E7%9A%84%E9%97%AE%E9%A2%98"><span class="nav-number">4.</span> <span class="nav-text">开篇条件变量的封装的问题</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">5.</span> <span class="nav-text">总结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : '357a5aeb73514b437300bdad1518eeff',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>

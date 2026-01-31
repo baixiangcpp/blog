@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="本来准备将这节的内容直接写到《抽丝剥茧libevent——初识event》一节，后边发现，越写越多，changlist好像并不是那么容易就可以描述清楚的，于是单开一节专门来讲changelist。 对事件的操作，到最后都会转换为对fd的操作————修改epoll兴趣列表。也就是说每一次event_add&#x2F;event_del最终都会导致一次epoll_ctl系统调用,但是系统调用的开销很大">
+<meta property="og:type" content="article">
+<meta property="og:title" content="抽丝剥茧libevent——使用changelist减少系统调用">
+<meta property="og:url" content="https://ilovecpp.com/2018/05/10/libevent-using-changlist/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="本来准备将这节的内容直接写到《抽丝剥茧libevent——初识event》一节，后边发现，越写越多，changlist好像并不是那么容易就可以描述清楚的，于是单开一节专门来讲changelist。 对事件的操作，到最后都会转换为对fd的操作————修改epoll兴趣列表。也就是说每一次event_add&#x2F;event_del最终都会导致一次epoll_ctl系统调用,但是系统调用的开销很大">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-changelist/event_changlist.png">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-changelist/bit.png">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-event-mgr/change.png">
+<meta property="article:published_time" content="2018-05-09T16:20:15.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.839Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="linux">
+<meta property="article:tag" content="网络">
+<meta property="article:tag" content="libevent">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-changelist/event_changlist.png">
+
+<link rel="canonical" href="https://ilovecpp.com/2018/05/10/libevent-using-changlist/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>抽丝剥茧libevent——使用changelist减少系统调用 | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2018/05/10/libevent-using-changlist/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          抽丝剥茧libevent——使用changelist减少系统调用
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2018-05-10 00:20:15" itemprop="dateCreated datePublished" datetime="2018-05-10T00:20:15+08:00">2018-05-10</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/libevent/" itemprop="url" rel="index"><span itemprop="name">libevent</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>本来准备将这节的内容直接写到<a href="http://ilovecpp.com/2018/05/01/libevent-event-analyze/">《抽丝剥茧libevent——初识event》</a>一节，后边发现，越写越多，changlist好像并不是那么容易就可以描述清楚的，于是单开一节专门来讲changelist。</p>
+<p>对事件的操作，到最后都会转换为对fd的操作————修改epoll兴趣列表。也就是说每一次event_add&#x2F;event_del最终都会导致一次epoll_ctl系统调用,但是系统调用的开销很大(<a target="_blank" rel="noopener" href="https://www.zhihu.com/question/32043825">系统调用真正的效率瓶颈在哪里？</a>)。changelist正是一种能减少epoll_ctl调用的机制。<span id="more"></span></p>
+<h1 id="changelist-基本原理"><a href="#changelist-基本原理" class="headerlink" title="changelist 基本原理"></a>changelist 基本原理</h1><p><code>changelist-internal.h</code>中有一段注释，解释了要使用changelist的原因:</p>
+<blockquote>
+<p>Sometimes applications will add and delete the same event more than once between calls to dispatch.  Processing these changes immediately is needless, and potentially expensive (especially if we’re on a system that makes one syscall per changed event).<br>Sometimes we can coalesce multiple changes on the same fd into a single syscall if we know about them in advance. For example, epoll can do an add and a delete at the same time, but only if we have found out about both of them before we tell epoll.<br>Sometimes adding an event that we immediately delete can cause unintended consequences: in kqueue,this makes pending events get reported spuriously.</p>
+</blockquote>
+<p>使用changelist后，对事件的修改不会立即作用到epoll上，而是把这些修改保存到一个list上，在作用到epoll之前，这些修改可以抵消，合并。比如说，对于同一个事件，先add再del，虽然什么也没做，如果不使用changelist就会多出2个不必要的系统调用。当然如果这种操作并不多的话，使用changelist反而多了额外的开销(相比系统调用，这种开销微不足道)，libevent将选择权交给了你。</p>
+<h1 id="使用changlist"><a href="#使用changlist" class="headerlink" title="使用changlist"></a>使用changlist</h1><p>要使用changelist机制，只要在创建event_base时，传入<code>EVENT_BASE_FLAG_EPOLL_USE_CHANGELIST</code>标志：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">event_config</span> *<span class="title">cfg</span> =</span> event_config_new();</span><br><span class="line">event_config_set_flag(cfg,EVENT_BASE_FLAG_EPOLL_USE_CHANGELIST);</span><br><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">event_base</span>* <span class="title">base</span> =</span> event_base_new_with_config(cfg);</span><br></pre></td></tr></table></figure>
+
+<p>这里我写了两份代码，一个未使用chagelist，另一个未使用，都放在了Github上:<a target="_blank" rel="noopener" href="https://gist.github.com/baixiangcpp/f2d3feea38c81f50d02f33483587d2f2">https://gist.github.com/baixiangcpp/f2d3feea38c81f50d02f33483587d2f2</a>和<a target="_blank" rel="noopener" href="https://gist.github.com/baixiangcpp/ae836f31e618d002e6611ad0006c5c74">https://gist.github.com/baixiangcpp/ae836f31e618d002e6611ad0006c5c74</a>。用gdb分别单步调试,最终的函数栈大致是这样的:</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">//不使用changelist</span><br><span class="line">(gdb) bt</span><br><span class="line">#0  0x00007ffff78bbcb0 in epoll_ctl () from /lib64/libc.so.6</span><br><span class="line">#1  0x00007ffff7bad965 in epoll_apply_one_change (ch=ch@entry=0x7fffffffe29c, epollop=&lt;optimized out&gt;, base=&lt;optimized out&gt;) at epoll.c:290</span><br><span class="line">#2  0x00007ffff7bae180 in epoll_nochangelist_add (base=&lt;optimized out&gt;, fd=&lt;optimized out&gt;, old=&lt;optimized out&gt;, events=&lt;optimized out&gt;,p=&lt;optimized out&gt;) at epoll.c:392</span><br><span class="line">#3  0x00007ffff7ba6813 in evmap_io_add_ (base=base@entry=0x6022a0, fd=&lt;optimized out&gt;, ev=ev@entry=0x602710) at evmap.c:330</span><br><span class="line">#4  0x00007ffff7ba1b9e in event_add_nolock_ (ev=ev@entry=0x602710, tv=tv@entry=0x0, tv_is_absolute=tv_is_absolute@entry=0) at event.c:2600</span><br><span class="line">#5  0x00007ffff7ba200e in event_add (ev=0x602710, tv=0x0) at event.c:2445</span><br><span class="line">#6  0x0000000000400991 in main () at helloworld.c:32</span><br><span class="line"></span><br><span class="line">//使用changelist</span><br><span class="line">(gdb) bt</span><br><span class="line">#0  event_changelist_add_ (base=0x6022a0, fd=0, old=0, events=2, p=0x6028c0) at evmap.c:857</span><br><span class="line">#1  0x00007ffff7ba5813 in evmap_io_add_ (base=base@entry=0x6022a0, fd=&lt;optimized out&gt;, ev=ev@entry=0x602710) at evmap.c:330</span><br><span class="line">#2  0x00007ffff7ba0b9e in event_add_nolock_ (ev=ev@entry=0x602710, tv=tv@entry=0x0, tv_is_absolute=tv_is_absolute@entry=0) at event.c:2600</span><br><span class="line">#3  0x00007ffff7ba100e in event_add (ev=0x602710, tv=0x0) at event.c:2445</span><br><span class="line">#4  0x0000000000400a62 in main () at helloworld.c:35</span><br></pre></td></tr></table></figure>
+
+<p>事实上epoll_nochangelist_add和epoll_nochangelist_del就是对epoll_ctl(EPOLL_CTL_ADD&#x2F;EPOLL_CTL_DEL)的封装。最终epoll_nochangelist_add会调用epoll_ctl,将事件对应的fd添加加到epoll的兴趣列表里。</p>
+<p>使用changelist时，event_changelist_add_把changes加到了changlist里就直接返回了。那么是什么时候回调用epoll_ctl()的呢，给它下个断点:</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">(gdb) bt</span><br><span class="line">#0  0x00007ffff78adcb0 in epoll_ctl () from /lib64/libc.so.6</span><br><span class="line">#1  0x00007ffff7ba7669 in epoll_apply_one_change (base=0x6022a0, epollop=0x602540, ch=0x6028d0) at epoll.c:290</span><br><span class="line">#2  0x00007ffff7ba7a48 in epoll_apply_changes (base=0x6022a0) at epoll.c:367</span><br><span class="line">#3  0x00007ffff7ba7caa in epoll_dispatch (base=0x6022a0, tv=0x0) at epoll.c:457</span><br><span class="line">#4  0x00007ffff7b9663f in event_base_loop (base=0x6022a0, flags=0) at event.c:1947</span><br><span class="line">#5  0x00007ffff7b95fd3 in event_base_dispatch (event_base=0x6022a0) at event.c:1772</span><br><span class="line">#6  0x0000000000400a6e in main () at hello.c:36</span><br></pre></td></tr></table></figure>
+
+<p>也就是说，使用changelist时，先将修改保存到changelist上，到下一次event_base_dispatch()中再遍历链表，将修改作用到epoll上。</p>
+<p>这个list正是减少系统调用的关键所在，它会将重复的change合并，将互斥的change抵消…</p>
+<h1 id="用changelist记录event-change"><a href="#用changelist记录event-change" class="headerlink" title="用changelist记录event change"></a>用changelist记录event change</h1><p>先看struct event_changelist的定义:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">event_changelist</span> &#123;</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">event_change</span> *<span class="title">changes</span>;</span></span><br><span class="line">    <span class="type">int</span> n_changes;</span><br><span class="line">    <span class="type">int</span> changes_size;</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">event_change</span> &#123;</span></span><br><span class="line">    <span class="type">evutil_socket_t</span> fd;</span><br><span class="line">    <span class="type">short</span> old_events;</span><br><span class="line">    <span class="type">ev_uint8_t</span> read_change;</span><br><span class="line">    <span class="type">ev_uint8_t</span> write_change;</span><br><span class="line">    <span class="type">ev_uint8_t</span> close_change;</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line"><span class="comment">/* If set, add the event. */</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> EV_CHANGE_ADD     0x01</span></span><br><span class="line"><span class="comment">/* If set, delete the event.  Exclusive with EV_CHANGE_ADD */</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> EV_CHANGE_DEL     0x02</span></span><br><span class="line"><span class="comment">/* If set, this event refers a signal, not an fd. */</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> EV_CHANGE_SIGNAL  EV_SIGNAL</span></span><br><span class="line"><span class="comment">/* Set for persistent events.  Currently not used. */</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> EV_CHANGE_PERSIST EV_PERSIST</span></span><br><span class="line"><span class="comment">/* Set for adding edge-triggered events. */</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> EV_CHANGE_ET      EV_ET</span></span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>图示直观一点，黄色部分表示event_changelist，绿色部分表示event_change：</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-changelist/event_changlist.png" alt="event_changlist1"></p>
+<p>一个fd对应一个struct event_change结构，对该fd的操作，都将体现到对XXXX_change的位操作上。标志位定义，用图表示：</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-changelist/bit.png" alt="bit"></p>
+<p>比如要添加监听对一个fd的读事件(或者signal,其实也是读，<a target="_blank" rel="noopener" href="http://www.ilovecpp.com/2019/01/20/effective-epoll/#%E7%94%A8epoll%E5%A4%84%E7%90%86signal">Effective epoll</a>),只要将这个fd对应event_change的read_change字段的第一位设置为’EV_CHANGE_ADD’。同理要删除fd的读事件，将第二位置为’EV_CHANGE_DEL’即可。</p>
+<p>在changelist-internal.h,定义了几个与changelist相关接口函数,先看event_changelist_add_：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">event_changelist_add_</span><span class="params">(<span class="keyword">struct</span> event_base *base, <span class="type">evutil_socket_t</span> fd, <span class="type">short</span> old, <span class="type">short</span> events,<span class="type">void</span> *p)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">event_changelist</span> *<span class="title">changelist</span> =</span> &amp;base-&gt;changelist;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">event_changelist_fdinfo</span> *<span class="title">fdinfo</span> =</span> p;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">event_change</span> *<span class="title">change</span>;</span></span><br><span class="line"></span><br><span class="line">    change = event_changelist_get_or_construct(changelist, fd, old, fdinfo);</span><br><span class="line">    <span class="keyword">if</span> (!change)</span><br><span class="line">        <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (events &amp; (EV_READ|EV_SIGNAL)) &#123;</span><br><span class="line">        change-&gt;read_change = EV_CHANGE_ADD |</span><br><span class="line">            (events &amp; (EV_ET|EV_PERSIST|EV_SIGNAL));</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (events &amp; EV_WRITE) &#123;</span><br><span class="line">        change-&gt;write_change = EV_CHANGE_ADD |</span><br><span class="line">            (events &amp; (EV_ET|EV_PERSIST|EV_SIGNAL));</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (events &amp; EV_CLOSED) &#123;</span><br><span class="line">        change-&gt;close_change = EV_CHANGE_ADD |</span><br><span class="line">            (events &amp; (EV_ET|EV_PERSIST|EV_SIGNAL));</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> (<span class="number">0</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>event_changelist_get_or_construct()是根据fdinfo(存在struct evmap_io结构的尾部)选择该fd对应的event_change结构，如果之前还没创建该event_change，则创建一个。根据添加事件的类型，分别将read_change&#x2F;write_change&#x2F;close_change的第一位置为EV_CHANGE_ADD，并保留EV_ET、EV_PERSIST、EV_SIGNAL等标志位。</p>
+<p>同理event_changelist_del_()用来标记对一个fd事件的删除，如果需要删除将对应event_change的read_change赋值为EV_CHANGE_DEL，其他标志也就没用了，不需要保留。如果对fd取消读事件，但是eventloop中根本没有监听它的读(通过判断old_events即可)，将read_change置为0。write_change&#x2F;close_change同理。</p>
+<h1 id="将event-change作用到epoll上"><a href="#将event-change作用到epoll上" class="headerlink" title="将event_change作用到epoll上"></a>将event_change作用到epoll上</h1><p>在每一次epoll_wait()之前都会通过epoll_apply_changes遍历当前的changlist所有的event_change,然后通过epoll_apply_one_change再把事件添加到epoll_ctl上：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">int</span> <span class="title function_">epoll_apply_one_change</span><span class="params">(<span class="keyword">struct</span> event_base *base,<span class="keyword">struct</span> epollop *epollop, <span class="type">const</span> <span class="keyword">struct</span> event_change *ch)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">epoll_event</span> <span class="title">epev</span>;</span></span><br><span class="line">    <span class="type">int</span> op, events = <span class="number">0</span>;</span><br><span class="line">    <span class="type">int</span> idx;</span><br><span class="line"></span><br><span class="line">    idx = EPOLL_OP_TABLE_INDEX(ch);</span><br><span class="line">    op = epoll_op_table[idx].op;</span><br><span class="line">    events = epoll_op_table[idx].events;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (!events) &#123;</span><br><span class="line">        EVUTIL_ASSERT(op == <span class="number">0</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> ((ch-&gt;read_change|ch-&gt;write_change) &amp; EV_CHANGE_ET)</span><br><span class="line">        events |= EPOLLET;</span><br><span class="line"></span><br><span class="line">    <span class="built_in">memset</span>(&amp;epev, <span class="number">0</span>, <span class="keyword">sizeof</span>(epev));</span><br><span class="line">    epev.data.fd = ch-&gt;fd;</span><br><span class="line">    epev.events = events;</span><br><span class="line">    <span class="keyword">if</span> (epoll_ctl(epollop-&gt;epfd, op, ch-&gt;fd, &amp;epev) == <span class="number">0</span>) &#123;</span><br><span class="line">        event_debug((PRINT_CHANGES(op, epev.events, ch, <span class="string">&quot;okay&quot;</span>)));</span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">switch</span> (op) &#123;</span><br><span class="line">    <span class="keyword">case</span> EPOLL_CTL_MOD:</span><br><span class="line">        <span class="keyword">if</span> (errno == ENOENT) &#123;</span><br><span class="line">            <span class="keyword">if</span> (epoll_ctl(epollop-&gt;epfd, EPOLL_CTL_ADD, ch-&gt;fd, &amp;epev) == <span class="number">-1</span>) &#123;</span><br><span class="line">                event_warn(<span class="string">&quot;Epoll MOD(%d) on %d retried as ADD; that failed too&quot;</span>,</span><br><span class="line">                    (<span class="type">int</span>)epev.events, ch-&gt;fd);</span><br><span class="line">                <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">            &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">                event_debug((<span class="string">&quot;Epoll MOD(%d) on %d retried as ADD; succeeded.&quot;</span>,</span><br><span class="line">                    (<span class="type">int</span>)epev.events,</span><br><span class="line">                    ch-&gt;fd));</span><br><span class="line">                <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">break</span>;</span><br><span class="line">    <span class="keyword">case</span> EPOLL_CTL_ADD:</span><br><span class="line">        <span class="keyword">if</span> (errno == EEXIST) &#123;</span><br><span class="line">            <span class="keyword">if</span> (epoll_ctl(epollop-&gt;epfd, EPOLL_CTL_MOD, ch-&gt;fd, &amp;epev) == <span class="number">-1</span>) &#123;</span><br><span class="line">                event_warn(<span class="string">&quot;Epoll ADD(%d) on %d retried as MOD; that failed too&quot;</span>,</span><br><span class="line">                    (<span class="type">int</span>)epev.events, ch-&gt;fd);</span><br><span class="line">                <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">            &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">                event_debug((<span class="string">&quot;Epoll ADD(%d) on %d retried as MOD; succeeded.&quot;</span>,</span><br><span class="line">                    (<span class="type">int</span>)epev.events,</span><br><span class="line">                    ch-&gt;fd));</span><br><span class="line">                <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">break</span>;</span><br><span class="line">    <span class="keyword">case</span> EPOLL_CTL_DEL:</span><br><span class="line">        <span class="keyword">if</span> (errno == ENOENT || errno == EBADF || errno == EPERM) &#123;</span><br><span class="line">            event_debug((<span class="string">&quot;Epoll DEL(%d) on fd %d gave %s: DEL was unnecessary.&quot;</span>,</span><br><span class="line">                (<span class="type">int</span>)epev.events,</span><br><span class="line">                ch-&gt;fd,</span><br><span class="line">                strerror(errno)));</span><br><span class="line">            <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">break</span>;</span><br><span class="line">    <span class="keyword">default</span>:</span><br><span class="line">        <span class="keyword">break</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    event_warn(PRINT_CHANGES(op, epev.events, ch, <span class="string">&quot;failed&quot;</span>));</span><br><span class="line">    <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>EPOLL_OP_TABLE_INDEX()是一个宏运算，将event_change转换为一个正整数型，每一位分别表示:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">Bit <span class="number">0</span>: close change is add</span><br><span class="line">Bit <span class="number">1</span>: close change is del</span><br><span class="line">Bit <span class="number">2</span>: read change is add</span><br><span class="line">Bit <span class="number">3</span>: read change is del</span><br><span class="line">Bit <span class="number">4</span>: write change is add</span><br><span class="line">Bit <span class="number">5</span>: write change is del</span><br><span class="line">Bit <span class="number">6</span>: old events had EV_READ</span><br><span class="line">Bit <span class="number">7</span>: old events had EV_WRITE</span><br><span class="line">Bit <span class="number">8</span>: old events had EV_CLOSED</span><br></pre></td></tr></table></figure>
+
+<p>总共有2^9共512中组合，epoll_op_table数组是libevent使用python将这512个值分别对应的操作而自动创建的。每一种组合得出的值(EPOLL_OP_TABLE_INDEX())作为index，数组对应的值就是代表它对epoll的操作。举个例子：</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/libevent-event-mgr/change.png" alt="change"></p>
+<p>这个event_change通过EPOLL_OP_TABLE_INDEX()计算后得到69,然后选择epoll_op_table数组的70个值：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">/* old=  r, write:  0, read:add, close:add */</span><br><span class="line">&#123; EPOLLIN|EPOLLRDHUP, EPOLL_CTL_MOD &#125;,</span><br></pre></td></tr></table></figure>
+
+<p>正符合我们计算的值。然后接下来就会将对应的fd按这个操作，修改到epollfd上 。</p>
+<p>然后这个过程可能会出错。举一例子，由于将对事件的修改是发生在两次dispatch之中的，可能前一次dispatch的时候，close掉了之前的fd，又重新打开了。EPOLL_CTL_MOD的操作会失败，将其改为EPOLL_CTL_ADD再试一遍。还有其他几种出错的情况可以参考注释。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>因为changelist机制对使用着来说是完全透明的，使用changelist也不会增加复杂度。这些大神们为了榨干计算机的性能，也是绞尽脑汁。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/linux/" rel="tag"># linux</a>
+              <a href="/tags/%E7%BD%91%E7%BB%9C/" rel="tag"># 网络</a>
+              <a href="/tags/libevent/" rel="tag"># libevent</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2018/05/06/libevent-event-processing/" rel="prev" title="抽丝剥茧libevent——事件处理框架">
+      <i class="fa fa-chevron-left"></i> 抽丝剥茧libevent——事件处理框架
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2018/06/25/seafile-compile/" rel="next" title="搭建seafile windows客户端的交叉编译环境">
+      搭建seafile windows客户端的交叉编译环境 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#changelist-%E5%9F%BA%E6%9C%AC%E5%8E%9F%E7%90%86"><span class="nav-number">1.</span> <span class="nav-text">changelist 基本原理</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8changlist"><span class="nav-number">2.</span> <span class="nav-text">使用changlist</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E7%94%A8changelist%E8%AE%B0%E5%BD%95event-change"><span class="nav-number">3.</span> <span class="nav-text">用changelist记录event change</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%B0%86event-change%E4%BD%9C%E7%94%A8%E5%88%B0epoll%E4%B8%8A"><span class="nav-number">4.</span> <span class="nav-text">将event_change作用到epoll上</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">5.</span> <span class="nav-text">总结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : '6c442ce63fdb6d241812997aaf3c41ef',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>

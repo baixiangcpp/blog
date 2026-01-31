@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="前两个星期的时候对一条悲伤的新闻印象比较深刻，Google Chrome宣布将FTP站点标记为不安全。由于FTP具有的致命的缺陷：密码和文件内容都使用明文传输。估计再苟延残喘几年，就快成互联网的化石了。目前FTP的替代协议用的最多的就是SFTP了。STP(SSH File Transfer Protocol)是一款基于SSH协议的文件传输协议。SSH保证了其数据在传输的过程中安全不被窃听。大学的时">
+<meta property="og:type" content="article">
+<meta property="og:title" content="在windows下编译libssh2">
+<meta property="og:url" content="https://ilovecpp.com/2017/09/24/build-libssh2/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="前两个星期的时候对一条悲伤的新闻印象比较深刻，Google Chrome宣布将FTP站点标记为不安全。由于FTP具有的致命的缺陷：密码和文件内容都使用明文传输。估计再苟延残喘几年，就快成互联网的化石了。目前FTP的替代协议用的最多的就是SFTP了。STP(SSH File Transfer Protocol)是一款基于SSH协议的文件传输协议。SSH保证了其数据在传输的过程中安全不被窃听。大学的时">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/build-libssh2/Win32OpenSSL.png">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/build-libssh2/cmake-error.png">
+<meta property="og:image" content="http://oss.ilovecpp.com/blog/build-libssh2/success.png">
+<meta property="article:published_time" content="2017-09-24T08:33:32.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.838Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="ssh">
+<meta property="article:tag" content="openssl">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://oss.ilovecpp.com/blog/build-libssh2/Win32OpenSSL.png">
+
+<link rel="canonical" href="https://ilovecpp.com/2017/09/24/build-libssh2/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>在windows下编译libssh2 | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2017/09/24/build-libssh2/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          在windows下编译libssh2
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2017-09-24 16:33:32" itemprop="dateCreated datePublished" datetime="2017-09-24T16:33:32+08:00">2017-09-24</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/SSH2/" itemprop="url" rel="index"><span itemprop="name">SSH2</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>前两个星期的时候对一条悲伤的新闻印象比较深刻，Google Chrome宣布将FTP站点标记为不安全。由于FTP具有的致命的缺陷：密码和文件内容都使用明文传输。估计再苟延残喘几年，就快成互联网的化石了。目前FTP的替代协议用的最多的就是SFTP了。<br>STP(SSH File Transfer Protocol)是一款基于SSH协议的文件传输协议。SSH保证了其数据在传输的过程中安全不被窃听。大学的时候实现过一个简单的FTP的服务端程序，今天正好有空，打算学习一下SFTP。SFTP在服务端并没有单独的守护进程，和SSH都是使用的sshd。因此我打算在windows上编译一下libssh2的库(早期的ssh1存在一些安全性的漏洞)，看一下自带的DEMO程序 。libssh2在Github上只有200多个star，关于它怎么编译的中文内容不是很多，于是我记录下来编译的过程。<span id="more"></span></p>
+<h2 id="libssh2依赖的组件"><a href="#libssh2依赖的组件" class="headerlink" title="libssh2依赖的组件"></a>libssh2依赖的组件</h2><p>编译libssh2之前需要选择一个后端使用的密码库，根据<a target="_blank" rel="noopener" href="https://www.libssh2.org/">libssh2官网</a>介绍它，提供了四种选择OpenSSL, libgcrypt, mbedTLS or WinCNG (native since Windows Vista)，使用其中的任何一个都可以。这里我选用的是OpenSSL。OpenSSL在Github上拥有5000多个Star，文档相对来说详细很多，很容易编译。<br>另外一个依赖就是zlib了，当然libssh2也提供了关闭zlib的选项，后面会提到。但是网络带宽本身就是很宝贵的资源，传输的时候还是压缩一下比较合适。强烈不建议关闭这个选项。<br>这两个库在网上都能找到二进制的内容,openssl的安装包<a target="_blank" rel="noopener" href="http://slproweb.com/products/Win32OpenSSL.html">http://slproweb.com/products/Win32OpenSSL.html</a>:<br><img src="http://oss.ilovecpp.com/blog/build-libssh2/Win32OpenSSL.png" alt="openssl"><br>zlib的库就更多了，即使不是程序员都能轻易找到。关于这个两个库的编译也比较简单，就不记录了。</p>
+<h2 id="编译libssh2"><a href="#编译libssh2" class="headerlink" title="编译libssh2"></a>编译libssh2</h2><p>官方也提供了CMake，NMake的方式进行构建项目，这里我使用的是CMake，因为我对CMake相对熟悉一点。官方在<a target="_blank" rel="noopener" href="https://github.com/libssh2/libssh2/blob/master/docs/INSTALL_CMAKE">Github</a>上也对CMake Configure的一些选项进行了说明,其中最主要的有这几个选项：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">* `BUILD_SHARED_LIBS=OFF`</span><br><span class="line"></span><br><span class="line">   Determines whether libssh2 is built as a static library or as a</span><br><span class="line">   shared library (.dll/.so).  Can be `ON` or `OFF`.</span><br><span class="line"></span><br><span class="line">* `CRYPTO_BACKEND=`</span><br><span class="line"></span><br><span class="line">   Chooses a specific cryptography library to use for cryptographic</span><br><span class="line">   operations.  Can be `OpenSSL` (https://www.openssl.org),</span><br><span class="line">   `Libgcrypt` (https://www.gnupg.org/), `WinCNG` (Windows Vista+),</span><br><span class="line">   `mbedTLS` (https://tls.mbed.org/) or blank to use any library available.</span><br><span class="line"></span><br><span class="line">   CMake will attempt to locate the libraries automatically.  See [2]</span><br><span class="line">   for more information.</span><br><span class="line"></span><br><span class="line">* `ENABLE_ZLIB_COMPRESSION=OFF`</span><br><span class="line"></span><br><span class="line">   Will use zlib (http://www.zlib.org) for payload compression.  Can</span><br><span class="line">   be `ON` or `OFF`.</span><br></pre></td></tr></table></figure>
+<p>BUILD_SHARED_LIBS标记的是编译一个静态库还是动态库，由于我是用的是windows的环境，这里使用ON打开，CRYPTO_BACKEND指定的是后端使用的密码库，这里我选择的是OpenSSL，ENABLE_ZLIB_COMPRESSION选项标记了是否使用zlib进行压缩，使用ON打开即可。最后使用cmake的变量CMAKE_INSTALL_PREFIX指定要安装的目录。<br>到现在为止，执行cmake还不能成功Configure项目：<br><img src="http://oss.ilovecpp.com/blog/build-libssh2/cmake-error.png" alt="cmake-error"><br>主要是找不到zlib的头文件以及lib文件，而openssl的头文件和lib文件却被发现了（cmake中的脚本中方使用find_path，find_library两个函数找到的），手动提供他们的路径(<code>拷贝windows的路径的时候，要注意把路径中反斜杠改成斜杠/，使用反斜杠\一般都会报错Invalid character escape &#39;\U&#39;.比较难以察觉。</code>)即可，需要使用这两个变量：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ZLIB_LIBRARY //zlib</span><br><span class="line">ZLIB_INCLUDE_DIR  //.h文件所在的目录</span><br></pre></td></tr></table></figure>
+
+<p>现在将cmake Configure的命令修改为：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">cmake -DENABLE_ZLIB_COMPRESSION=ON -DCRYPTO_BACKEND=OpenSSL -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=./dll -DZLIB_LIBRARY=zdll -DZLIB_INCLUDE_DIR=./zlib --build .</span><br></pre></td></tr></table></figure>
+
+<p>如果要编译为64位加上:</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">-DCMAKE_GENERATOR_PLATFORM=x64</span><br></pre></td></tr></table></figure>
+
+<p>稍等半分钟，这时候已经能够生成.sln结尾的解决方案文件（我是用的是VS2015，如果采用的是其他的编译环境则不一定是这个）。执行<code>cmake --build . --target install</code> 或者用vs打开解决方案都能编译libssh2了。<br><img src="http://oss.ilovecpp.com/blog/build-libssh2/success.png" alt="cmake-error"><br>直接使用visual studio编译，全部生成成功。到此编译完成。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/ssh/" rel="tag"># ssh</a>
+              <a href="/tags/openssl/" rel="tag"># openssl</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2017/05/06/start-blog/" rel="prev" title="用BAE写Hexo博客,每天只要一毛钱">
+      <i class="fa fa-chevron-left"></i> 用BAE写Hexo博客,每天只要一毛钱
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2018/03/01/dhcp/" rel="next" title="为什么DHCP要基于UDP协议？">
+      为什么DHCP要基于UDP协议？ <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#libssh2%E4%BE%9D%E8%B5%96%E7%9A%84%E7%BB%84%E4%BB%B6"><span class="nav-number">1.</span> <span class="nav-text">libssh2依赖的组件</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%BC%96%E8%AF%91libssh2"><span class="nav-number">2.</span> <span class="nav-text">编译libssh2</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : '34e534b164db238503e735701ca5f6e2',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>

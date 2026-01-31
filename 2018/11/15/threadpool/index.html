@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="无意间看到了上大学的时候用C++ + PThread API实现的了一个简单线程池：https:&#x2F;&#x2F;github.com&#x2F;baixiangcpp&#x2F;TinxHttpd&#x2F;blob&#x2F;master&#x2F;ThreadPool.h。发现了几个问题：  多线程对std::queue的操作都没有加锁，很明显的race condition 虽然使用了C++11的特性 (std::function)，thread库没有使">
+<meta property="og:type" content="article">
+<meta property="og:title" content="一个基于现代C++简单线程池的实现">
+<meta property="og:url" content="https://ilovecpp.com/2018/11/15/threadpool/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="无意间看到了上大学的时候用C++ + PThread API实现的了一个简单线程池：https:&#x2F;&#x2F;github.com&#x2F;baixiangcpp&#x2F;TinxHttpd&#x2F;blob&#x2F;master&#x2F;ThreadPool.h。发现了几个问题：  多线程对std::queue的操作都没有加锁，很明显的race condition 虽然使用了C++11的特性 (std::function)，thread库没有使">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2018-11-15T08:33:32.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.841Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="c++">
+<meta property="article:tag" content="thread-safe">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://ilovecpp.com/2018/11/15/threadpool/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>一个基于现代C++简单线程池的实现 | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2018/11/15/threadpool/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          一个基于现代C++简单线程池的实现
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2018-11-15 16:33:32" itemprop="dateCreated datePublished" datetime="2018-11-15T16:33:32+08:00">2018-11-15</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/c/" itemprop="url" rel="index"><span itemprop="name">c++</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>无意间看到了上大学的时候用C++ + PThread API实现的了一个简单线程池：<a target="_blank" rel="noopener" href="https://github.com/baixiangcpp/TinxHttpd/blob/master/ThreadPool.h">https://github.com/baixiangcpp/TinxHttpd/blob/master/ThreadPool.h</a>。发现了几个问题：</p>
+<ol>
+<li>多线程对std::queue的操作都没有加锁，很明显的race condition</li>
+<li>虽然使用了C++11的特性 (std::function)，thread库没有使用，不统一。在linux上std::thread就是封装Pthread库，相比之下OO对象用起来还是舒服一点儿，免去了进一步封装的工作。</li>
+<li>接口设计不好,不容易复用。虽然名字叫task，其实只有一个fd，利用bind或者lambda表达式才更加合适。</li>
+</ol>
+<p>首先要不是这段代码出现在我的Github上，我肯定不承认这段代码是我写的。今天花时间重新设计了一个基于C++11的线程池。<span id="more"></span></p>
+<h1 id="使用高级的同步数据结构"><a href="#使用高级的同步数据结构" class="headerlink" title="使用高级的同步数据结构"></a>使用高级的同步数据结构</h1><p>虽然使用<a target="_blank" rel="noopener" href="https://en.cppreference.com/w/cpp/thread/condition_variable">std::condition_variable</a>已经比使用pthread_cond_t要方便多了，但是我仍然不打算直接使用用它。在前面<a target="_blank" rel="noopener" href="http://www.ilovecpp.com/2018/11/01/thread-safe/">当谈论线程安全时，我们在谈论什么</a>一文中，我自己才总结了应尽量避免直接使用底层的同步原语，而是用高级的数据结构。我不能这么着急的打自己的脸。</p>
+<p>java里的BlockingQueue正符合。他除了用来表示生产者消费者模型，还来实现任务队列。</p>
+<h1 id="封装一个BlockingQueue"><a href="#封装一个BlockingQueue" class="headerlink" title="封装一个BlockingQueue"></a>封装一个BlockingQueue</h1><p>Blocking的封装比较简单，只需要两种接口:put()和take()。我顺便提供了一个size():</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">BlockingQueue</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">using</span> Task = std::function&lt;<span class="built_in">void</span>()&gt;;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="built_in">BlockingQueue</span>() &#123;&#125;</span><br><span class="line">    <span class="function"><span class="type">void</span> <span class="title">put</span><span class="params">(<span class="type">const</span> Task&amp; task)</span></span>;</span><br><span class="line">    <span class="function"><span class="type">void</span> <span class="title">put</span><span class="params">(Task&amp;&amp; task)</span></span>;</span><br><span class="line">    <span class="function">Task <span class="title">take</span><span class="params">()</span></span>;</span><br><span class="line">    <span class="function"><span class="type">size_t</span> <span class="title">size</span><span class="params">()</span> <span class="type">const</span></span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">    <span class="keyword">mutable</span> std::mutex      mutex_;</span><br><span class="line">    std::queue&lt;Task&gt;        queue_;</span><br><span class="line">    std::condition_variable cond_;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p>构造函数不需要额外的干什么，成员变量都让他们默认构造就行了。size()也是只要在 mutex的保护下，直接返回std::queue中对应的函数。</p>
+<p>scott meyers曾在《Effective Modern c++》里边说过：“Because you’re a C++ programmer, there’s an above-average chance you’re a performance freak. If you’re not, you’re still probably sympathetic to their point of view. (If you’re not at all interested in performance, shouldn’t you be in the Python room down the hall?)”。</p>
+<p>作为一名C++程序员，我们应该时刻关注性能。</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">void</span> <span class="title">BlockingQueue::put</span><span class="params">(<span class="type">const</span> Task &amp;task)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="function">std::lock_guard&lt;std::mutex&gt; <span class="title">lock</span><span class="params">(mutex_)</span></span>;</span><br><span class="line">    queue_.<span class="built_in">emplace</span>(task);</span><br><span class="line">    cond_.<span class="built_in">notify_one</span>();</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">BlockingQueue::put</span><span class="params">(Task &amp;&amp;task)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="function">std::lock_guard&lt;std::mutex&gt; <span class="title">lock</span><span class="params">(mutex_)</span></span>;</span><br><span class="line">    queue_.<span class="built_in">emplace</span>(std::<span class="built_in">move</span>(task));</span><br><span class="line">    cond_.<span class="built_in">notify_one</span>();</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function">BlockingQueue::Task <span class="title">BlockingQueue::take</span><span class="params">()</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="function">std::unique_lock&lt;std::mutex&gt; <span class="title">lock</span><span class="params">(mutex_)</span></span>;</span><br><span class="line">    cond_.<span class="built_in">wait</span>(lock, [<span class="keyword">this</span>]() &#123; <span class="keyword">return</span> queue_.<span class="built_in">size</span>() &gt; <span class="number">0</span>; &#125;);</span><br><span class="line">    <span class="function">Task <span class="title">task</span><span class="params">( std::move(queue_.front()))</span></span>;</span><br><span class="line">    queue_.<span class="built_in">pop</span>();</span><br><span class="line">    <span class="keyword">return</span> std::<span class="built_in">move</span>(task);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>BlockingQueue实现有2处可以提升性能的地方 ：</p>
+<ol>
+<li>使用move语义减少拷贝</li>
+<li>使用emplace代替put(<a target="_blank" rel="noopener" href="https://en.cppreference.com/w/cpp/container/queue/emplace">std::queue&lt;&gt;::emplace</a>)</li>
+</ol>
+<p>put操作由于需要把mutex交给cond_解锁，因此使用了std::unique_lock&lt;&gt;而非std::lock_guard&lt;&gt;。</p>
+<p>此外，自从有了lambda之后，STL中像条件变量wait()这样的函数多了好些个，<a target="_blank" rel="noopener" href="http://www.ilovecpp.com/2018/09/29/condition/">《正确封装条件变量不容易》</a> 可以参考这种封装方法。</p>
+<h1 id="ThreadPool实现"><a href="#ThreadPool实现" class="headerlink" title="ThreadPool实现"></a>ThreadPool实现</h1><p>有了BlockingQueue之后，实现ThreadPool逻辑就清晰多了。</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">ThreadPool</span></span><br><span class="line">&#123;</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="built_in">ThreadPool</span>(<span class="type">unsigned</span> <span class="type">short</span> num) ;</span><br><span class="line">    ~<span class="built_in">ThreadPool</span>();</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="type">void</span> <span class="title">put</span><span class="params">(<span class="type">const</span> BlockingQueue::Task&amp; task)</span></span>;</span><br><span class="line">    <span class="function"><span class="type">void</span> <span class="title">put</span><span class="params">(BlockingQueue::Task&amp;&amp; task)</span></span>;</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">    <span class="function"><span class="type">void</span> <span class="title">runInThread</span><span class="params">()</span></span>;</span><br><span class="line"></span><br><span class="line">    std::vector&lt;std::unique_ptr&lt;std::thread&gt;&gt; threads_;</span><br><span class="line">    BlockingQueue  bqueue_;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p>ThreadPool只有一个BlockingQueue成员，用来管理任务。put将task原封不动的交给BlockingQueue保存。</p>
+<p>ThreadPool构造函数需要一个正整形的变量表示线程数，构造函数中将std::thread构造好。用std::vector&lt;&gt;保存线程的指针。当然，使用智能指针。</p>
+<p>runInThread()是线程的入口函数，由于是成员函数，需要额外的传递一个this指针。这样才能访问到BlockingQueue。</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">ThreadPool::<span class="built_in">ThreadPool</span>(<span class="type">int</span> num)</span><br><span class="line">&#123;</span><br><span class="line">    threads_.<span class="built_in">reserve</span>(num);</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; num; ++i)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="function">std::unique_ptr&lt;std::thread&gt; <span class="title">ptr</span><span class="params">(<span class="keyword">new</span> std::thread(std::bind(&amp;ThreadPool::runInThread, <span class="keyword">this</span>)))</span></span>;</span><br><span class="line">        threads_.<span class="built_in">emplace_back</span>(std::<span class="built_in">move</span>(ptr));</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">ThreadPool::runInThread</span><span class="params">()</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="keyword">while</span>(<span class="literal">true</span>)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="function">BlockingQueue::Task <span class="title">task</span><span class="params">(bqueue_.take())</span></span>;</span><br><span class="line">        <span class="built_in">task</span>();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">ThreadPool::put</span><span class="params">(<span class="type">const</span> BlockingQueue::Task&amp; task)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    bqueue_.<span class="built_in">put</span>(task);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">ThreadPool::put</span><span class="params">(BlockingQueue::Task&amp;&amp; task)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    bqueue_.<span class="built_in">put</span>(task);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这个线程池没有使用模板，而是直接使用了std::function&lt;void()&gt;，如果需要的话，很容易可以改写成模板实现。用现代C++的thread库代替Pthread，写出来的代码可阅读性更好，也省去了一些原始指针的操作。</p>
+<p>这个版本暂时未提供ThreadPool::stop()操作，因此析构函数中也没有及时join结束的线程。这个功能留到日后改进。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/c/" rel="tag"># c++</a>
+              <a href="/tags/thread-safe/" rel="tag"># thread-safe</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2018/11/01/thread-safe/" rel="prev" title="当谈论线程安全时，我们在谈论什么">
+      <i class="fa fa-chevron-left"></i> 当谈论线程安全时，我们在谈论什么
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2018/12/19/coroutine/" rel="next" title="协程那些事儿">
+      协程那些事儿 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8%E9%AB%98%E7%BA%A7%E7%9A%84%E5%90%8C%E6%AD%A5%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84"><span class="nav-number">1.</span> <span class="nav-text">使用高级的同步数据结构</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%B0%81%E8%A3%85%E4%B8%80%E4%B8%AABlockingQueue"><span class="nav-number">2.</span> <span class="nav-text">封装一个BlockingQueue</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#ThreadPool%E5%AE%9E%E7%8E%B0"><span class="nav-number">3.</span> <span class="nav-text">ThreadPool实现</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">4.</span> <span class="nav-text">总结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : '265f0aabc895758db505aaf98a3c95fd',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"ilovecpp.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"right","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="协程并不是什么新概念，可以理解为是拥有了控制权的用户态线程，用户可以自行选择切换用户上下文(user context)的时机，不需要操作系统额外调度(Steps in Context Switching)。 光这一点就足够牛逼了，现在Linux采用的是NPTL线程模型,线程和进程在内核里边都是同样的PCB块(task_struct)，看上去还是比较重量级的。网上找来一个有趣的测试，一次线程切换的开">
+<meta property="og:type" content="article">
+<meta property="og:title" content="协程那些事儿">
+<meta property="og:url" content="https://ilovecpp.com/2018/12/19/coroutine/index.html">
+<meta property="og:site_name" content="Baixiangcpp&#39;s Blog">
+<meta property="og:description" content="协程并不是什么新概念，可以理解为是拥有了控制权的用户态线程，用户可以自行选择切换用户上下文(user context)的时机，不需要操作系统额外调度(Steps in Context Switching)。 光这一点就足够牛逼了，现在Linux采用的是NPTL线程模型,线程和进程在内核里边都是同样的PCB块(task_struct)，看上去还是比较重量级的。网上找来一个有趣的测试，一次线程切换的开">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/stack.png">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/ctx_swap.png">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/ctx_pop.png">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/ucontext_t.png">
+<meta property="og:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/makecontext.png">
+<meta property="article:published_time" content="2018-12-19T11:43:35.000Z">
+<meta property="article:modified_time" content="2026-01-31T06:27:40.839Z">
+<meta property="article:author" content="Baixiangcpp">
+<meta property="article:tag" content="linux">
+<meta property="article:tag" content="协程">
+<meta property="article:tag" content="线程">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/stack.png">
+
+<link rel="canonical" href="https://ilovecpp.com/2018/12/19/coroutine/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>协程那些事儿 | Baixiangcpp's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <h1 class="site-title">Baixiangcpp's Blog</h1>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://ilovecpp.com/2018/12/19/coroutine/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Baixiangcpp">
+      <meta itemprop="description" content="源码之前，了无秘密。">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Baixiangcpp's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          协程那些事儿
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2018-12-19 19:43:35" itemprop="dateCreated datePublished" datetime="2018-12-19T19:43:35+08:00">2018-12-19</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/linux/" itemprop="url" rel="index"><span itemprop="name">linux</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>协程并不是什么新概念，可以理解为是拥有了控制权的用户态线程，用户可以自行选择切换用户上下文(user context)的时机，不需要操作系统额外调度(<a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/7439608/steps-in-context-switching">Steps in Context Switching</a>)。</p>
+<p>光这一点就足够牛逼了，现在Linux采用的是<a target="_blank" rel="noopener" href="http://man7.org/linux/man-pages/man7/nptl.7.html">NPTL</a>线程模型,线程和进程在内核里边都是同样的PCB块(task_struct)，看上去还是比较重量级的。网上找来一个有趣的测试，一次线程切换的开销大概是10Kns的量级:<a target="_blank" rel="noopener" href="https://www.yuque.com/jwang/tfvf35/yehli6">线程切换的开销到底有多大</a>。具体的为什么协程上下文切换比线程要快，网上也有讨论：<a target="_blank" rel="noopener" href="https://www.zhihu.com/question/308641794/answer/572499202">https://www.zhihu.com/question/308641794/answer/572499202</a>。根据这个作者的测试结果，切换协程的开销大概只有几十纳秒(ns)。</p>
+<span id="more"></span>
+
+<h1 id="协程能干什么"><a href="#协程能干什么" class="headerlink" title="协程能干什么"></a>协程能干什么</h1><p>使用异步的网络库，回调函数满天飞，有时甚至会出现好几层嵌套的回调，非常不利于代码的阅读。有了协程之后，同样的功能，我们可以使”同步阻塞”的方式组织代码。<code>阻塞</code>其实是一个用户态的概念，而内核是不会阻塞的，当发生耗时的IO操作时，当前线程剩余的时间片会被放弃，其他线程得到CPU，这样的过程也就是上下文切换。和内核一样，使用协程库后，我们可以使用”同步阻塞”的方式组织代码，而实际当“阻塞”发生时，程序会继续执行其他的执行流，而当”阻塞”的操作完成的时候，执行流会自动跳转回来继续向下执行。</p>
+<p>协程库的作用就是提供一些列的接口，让程序拥有在用户态切换上下文的能力，而上下文切换的时机需要调用者自行决断。</p>
+<p>一个协程库最核心的技术就是上下文切换。搬砖之余，参考了<a target="_blank" rel="noopener" href="https://github.com/cloudwu/coroutine">corountine</a>和<a target="_blank" rel="noopener" href="https://github.com/Tencent/libco">libco</a>的源码，在此对比一下这两个库上下文切换的技术实现。</p>
+<h1 id="汇编实现上下文切换"><a href="#汇编实现上下文切换" class="headerlink" title="汇编实现上下文切换"></a>汇编实现上下文切换</h1><p>libco的上下文切换的实现在<code>coxtx_swap.S</code>文件里边，这部分代码不复杂，抛去注释、空格等只有70行左右。但是要看懂这部分代码，也并不容易，首先得能看懂基本的汇编代码，知道常用的寄存器，并且对<a target="_blank" rel="noopener" href="https://en.wikibooks.org/wiki/X86_Disassembly/Functions_and_Stack_Frames">函数调用栈帧</a>比较熟悉。此外最好还能了解一下调用约定：<a target="_blank" rel="noopener" href="https://en.wikibooks.org/wiki/X86_Disassembly/Calling_Conventions">https://en.wikibooks.org/wiki/X86_Disassembly&#x2F;Calling_Conventions</a> ， <a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/2535989/what-are-the-calling-conventions-for-unix-linux-system-calls-on-i386-and-x86-6">https://stackoverflow.com/questions/2535989/what-are-the-calling-conventions-for-unix-linux-system-calls-on-i386-and-x86-6</a>。</p>
+<p><code>struct coctx_t</code>的结构用来表示用户上下文，是机器相关(machine-dependent)的,x86上需保存8个寄存器，x64多了6个(<a target="_blank" rel="noopener" href="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/x86_64-abi-0.99.pdf">https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/x86_64-abi-0.99.pdf</a>这个pdf的第21页的表格有对x64平台函数调用用的的寄存器进行说明)。x86和x64的代码，仅有的区别就是要保存&#x2F;恢复的寄存器数量多一点，其余实现都一致，为了缩小篇幅，下文我们均以x86的代码为例：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">coctx_t</span></span></span><br><span class="line"><span class="class">&#123;</span></span><br><span class="line">    <span class="type">void</span> *regs[<span class="number">8</span>];</span><br><span class="line">    <span class="type">size_t</span> ss_size;</span><br><span class="line">    <span class="type">char</span> *ss_sp;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p>这个<code>regs</code>字段里保存的寄存器的值，分别对应着：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// | regs[0]: ret |</span></span><br><span class="line"><span class="comment">// | regs[1]: ebx |</span></span><br><span class="line"><span class="comment">// | regs[2]: ecx |</span></span><br><span class="line"><span class="comment">// | regs[3]: edx |</span></span><br><span class="line"><span class="comment">// | regs[4]: edi |</span></span><br><span class="line"><span class="comment">// | regs[5]: esi |</span></span><br><span class="line"><span class="comment">// | regs[6]: ebp |</span></span><br><span class="line"><span class="comment">// | regs[7]: eax |  = esp</span></span><br></pre></td></tr></table></figure>
+
+<p>再看切换上下文的C函数声明:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">extern</span> <span class="string">&quot;C&quot;</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">extern</span> <span class="type">void</span> <span class="title function_">coctx_swap</span><span class="params">( <span class="type">coctx_t</span>* cur_ctx,<span class="type">coctx_t</span>* pending_ctx)</span> <span class="title function_">asm</span><span class="params">(<span class="string">&quot;coctx_swap&quot;</span>)</span>;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p><code>cur_ctx</code>用于表示当前的用户上下文，<code>pending_ctx</code>表示将要恢复执行(resume)的用户上下文。这个函数完成后，cur_ctx会被挂起，pending_ctx会被载入CPU开始运行。在一个函数中调用了coctx_swap():</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">fun</span><span class="params">()</span></span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    coctx_swap(current_ctx,pending_ctx);</span><br><span class="line">    do_something();</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>此时的栈帧应当是这样的：</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/stack.png" alt="stack"></p>
+<p>调用函数(这里是fun()),会把pending_ctx、current_ctx依次压栈，然后将返回地址(coctx_swap函数的下一条指令处，这里是do_something函数)压栈。然后coctx_swap函数的汇编代码就开始执行了：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">leal <span class="number">4</span>(%esp), %eax</span><br><span class="line">movl <span class="number">4</span>(%esp), %esp</span><br><span class="line">leal <span class="number">32</span>(%esp), %esp</span><br><span class="line"></span><br><span class="line">pushl %eax</span><br><span class="line"></span><br><span class="line">pushl %ebp</span><br><span class="line">pushl %esi</span><br><span class="line">pushl %edi</span><br><span class="line">pushl %edx</span><br><span class="line">pushl %ecx</span><br><span class="line">pushl %ebx</span><br><span class="line">pushl <span class="number">-4</span>(%eax)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">movl <span class="number">4</span>(%eax), %esp <span class="comment">//parm b -&gt; &amp;regs[0]</span></span><br><span class="line"></span><br><span class="line">popl %eax</span><br><span class="line">popl %ebx  </span><br><span class="line">popl %ecx</span><br><span class="line">popl %edx</span><br><span class="line">popl %edi</span><br><span class="line">popl %esi</span><br><span class="line">popl %ebp</span><br><span class="line">popl %esp</span><br><span class="line">pushl %eax</span><br><span class="line"></span><br><span class="line">xorl %eax, %eax</span><br><span class="line">ret</span><br></pre></td></tr></table></figure>
+
+<p>先看第一段的三句指令，执行步骤我用图示的方法画了出来:</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/ctx_swap.png" alt="swap"></p>
+<p>此时eax保存是current_ctx的地址值，esp指向了current_ctx，再将esp地址指向ss_size。因为栈是向下增长的，紧接着的<code>pushl</code>操作会将当前cpu的寄存器的值、还有返回地址(-4(%eax))，保存到current_ctx-&gt;regs数组里边。</p>
+<p>顺便说一句，这样的使用esp的方式，有网友提出这违反了<code>System V ABI</code>调用约定，可能会产生bug(<a target="_blank" rel="noopener" href="https://github.com/Tencent/libco/issues/90">https://github.com/Tencent/libco/issues/90</a>)，并且还给出了复现的代码，我暂时没有尝试，如果后边测了以后可能会单独写一篇blog。</p>
+<p>到这里当前协程的上下文就已经保存到current_ctx里边了。下面的工作就是，把pending_ctx载入CPU，恢复执行。于是，接下来先将esp指向pending_ctx：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">movl <span class="number">4</span>(%eax), %esp</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/ctx_pop.png" alt="pop"></p>
+<p>再通过pop操作将pending_ctx里保存的返回地址以及寄存器的值依次载入当CPU里。注意最后一个pop操作(<code>popl %esp</code>)完成的时候,当前的函数栈帧就跳到了pending_ctx里保存的了，然后将<code>%eax</code>压栈（这个里边保存的是返回地址），最后ret指令将这个返回地址载入eip，新的协程就开始执行了。</p>
+<p>切换上下文的工作到此就已经结束了，过程行云流水。</p>
+<h1 id="ucontext系列函数"><a href="#ucontext系列函数" class="headerlink" title="ucontext系列函数"></a>ucontext系列函数</h1><p>和libco不同的是，coroutine库没有通过汇编的方式实现切换上下文。它用的是 <code>&lt;ucontext.h&gt;</code> 中的4个函数:<code>getcontext</code>、<code>setcontext</code>、<code>makecontext</code>、<code>swapcontext</code>。<a target="_blank" rel="noopener" href="https://www.gnu.org/software/libc/manual/html_node/System-V-contexts.html#System-V-contexts">GNU</a>上有每个函数详细的说明。</p>
+<p>先从数据结构着手，ucontext_t顾名思义表示user context,至少要包含如下几个字段：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">ucontext_t</span></span></span><br><span class="line"><span class="class">&#123;</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">ucontext_t</span> *<span class="title">uc_link</span>;</span></span><br><span class="line">    <span class="type">stack_t</span> uc_stack;</span><br><span class="line">    <span class="type">mcontext_t</span> uc_mcontext;</span><br><span class="line">    <span class="type">sigset_t</span> uc_sigmask;</span><br><span class="line">    ...</span><br><span class="line">&#125; <span class="type">ucontext_t</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span></span></span><br><span class="line"><span class="class">&#123;</span></span><br><span class="line">    <span class="type">void</span> *ss_sp;</span><br><span class="line">    <span class="type">int</span> ss_flags;</span><br><span class="line">    <span class="type">size_t</span> ss_size;</span><br><span class="line">&#125; <span class="type">stack_t</span></span><br></pre></td></tr></table></figure>
+
+<p>其中mcontext_t结构是machine-dependent的不透明结构，可以使用gdb打印出来，主要用来保存一些和硬件相关的资源，在我的fedora28(x86-64)上它是这样的:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="comment">/* Context to describe whole processor state.  */</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span></span></span><br><span class="line"><span class="class">  &#123;</span></span><br><span class="line">    <span class="type">gregset_t</span> __ctx(gregs);</span><br><span class="line">    <span class="comment">/* Note that fpregs is a pointer.  */</span></span><br><span class="line">    <span class="type">fpregset_t</span> __ctx(fpregs);</span><br><span class="line">    __extension__ <span class="type">unsigned</span> <span class="type">long</span> <span class="type">long</span> __reserved1 [<span class="number">8</span>];</span><br><span class="line">&#125; <span class="type">mcontext_t</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">/* Number of general registers.  */</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> __NGREG 23</span></span><br><span class="line"></span><br><span class="line"><span class="comment">/* Container for all general registers.  */</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="type">greg_t</span> <span class="type">gregset_t</span>[__NGREG];</span><br><span class="line"></span><br><span class="line"><span class="comment">/* Structure to describe FPU registers.  */</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> _<span class="title">libc_fpstate</span> *<span class="title">fpregset_t</span>;</span></span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>注释的也很明白，这个结构用来保存一些寄存器的值。</p>
+<h2 id="getcontext"><a href="#getcontext" class="headerlink" title="getcontext"></a>getcontext</h2><p>getcontext使用当前调用线程的上下文初始化ucp。函数原型一目了然:</p>
+<blockquote>
+<p>int getcontext(ucontext_t *ucp);</p>
+</blockquote>
+<p>可是当我用如下代码将获取到ucp里的uc_stack打印出来的时候，却显示为0，一度让我怀疑这个函数是不是实现有bug:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">print</span><span class="params">()</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="type">ucontext_t</span> uc;</span><br><span class="line">    getcontext(&amp;uc);</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;%p\n&quot;</span>,uc.uc_stack.ss_sp);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>最终在<a target="_blank" rel="noopener" href="https://www.gnu.org/software/libc/manual/html_node/System-V-contexts.html">https://www.gnu.org/software/libc/manual/html_node&#x2F;System-V-contexts.html</a>找到了原因:</p>
+<blockquote>
+<p>Compatibility Note: Depending on the operating system, information about the current context’s stack may be in the uc_stack field of ucp, or it may instead be in architecture-specific subfields of the uc_mcontext field.</p>
+</blockquote>
+<p>其实理解libco的汇编代码后，我们甚至都能猜到getcontext()干了些什么，翻阅了glibc的实现(x86-64):</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">ENTRY(__getcontext)</span><br><span class="line">        <span class="comment">/* Save the preserved registers, the registers used for passing</span></span><br><span class="line"><span class="comment">           args, and the return address.  */</span></span><br><span class="line">        movq        %rbx, oRBX(%rdi)</span><br><span class="line">        movq        %rbp, oRBP(%rdi)</span><br><span class="line">        movq        %r12, oR12(%rdi)</span><br><span class="line">        movq        %r13, oR13(%rdi)</span><br><span class="line">        movq        %r14, oR14(%rdi)</span><br><span class="line">        movq        %r15, oR15(%rdi)</span><br><span class="line">        movq        %rdi, oRDI(%rdi)</span><br><span class="line">        movq        %rsi, oRSI(%rdi)</span><br><span class="line">        movq        %rdx, oRDX(%rdi)</span><br><span class="line">        movq        %rcx, oRCX(%rdi)</span><br><span class="line">        movq        %r8, oR8(%rdi)</span><br><span class="line">        movq        %r9, oR9(%rdi)</span><br><span class="line">        movq        (%rsp), %rcx</span><br><span class="line">        movq        %rcx, oRIP(%rdi)</span><br><span class="line">        leaq        <span class="number">8</span>(%rsp), %rcx                <span class="comment">/* Exclude the return address.  */</span></span><br><span class="line">        movq        %rcx, oRSP(%rdi)</span><br><span class="line">    ...</span><br><span class="line">PSEUDO_END(__getcontext)</span><br></pre></td></tr></table></figure>
+
+<p>前面我们已经知道了x64下的函数调用约定，getcontext()函数只有一个参数ucontext_t*，于是%rdi是getcontext函数的第一个参数，另外oRBX、oRBP…等这些宏用于计算ucontext_t中对应的保存寄存器值得字段的偏移，这段代码的作用就是将寄存器的值分别保存到ucp中。重点看这最后几句：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">movq        (%rsp), %rcx  </span><br><span class="line">movq        %rcx, oRIP(%rdi)  </span><br><span class="line">leaq        <span class="number">8</span>(%rsp), %rcx  </span><br><span class="line">movq        %rcx, oRSP(%rdi)</span><br></pre></td></tr></table></figure>
+
+<p>(%rsp)保存的是%rip(也就是是call getcontext后的下一条指令的地址，可以参考上一节的第一张插图),然后<code>movq (%rsp), %rcx</code>和<code>movq %rcx, oRIP(%rdi)</code>将%rip也存放到ucp中保存。最后两句将调用getcontext之前的函数栈顶保存到ucp中，保证恢复的时候函数栈的平衡。</p>
+<p>getcontext之后，ucp将会初始化成这样：</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/ucontext_t.png" alt="ucontext_t"></p>
+<h2 id="setcontext"><a href="#setcontext" class="headerlink" title="setcontext"></a>setcontext</h2><blockquote>
+<p>int setcontext(const ucontext_t *ucp);</p>
+</blockquote>
+<p>setcontext也只有一个参数，它的作用是用ucp指向的ucontext_t恢复用户上下文。</p>
+<p>getContext()的实现其实就相当于libco里边coctx_swap()里的那一连串的push操作，而setContext()则是对应的后边的一连串的pop操作，它将ucp里的寄存器信息、返回地址全部load到CPU里边去。</p>
+<p>这段源码这里就不贴了，本篇文章的篇幅已经太长了，具体可以参考：<a target="_blank" rel="noopener" href="https://code.woboq.org/userspace/glibc/sysdeps/unix/sysv/linux/x86_64/setcontext.S.html">https://code.woboq.org/userspace/glibc/sysdeps/unix/sysv/linux/x86_64&#x2F;setcontext.S.html</a>。</p>
+<p>setcontext()成功之后不会返回，这很好理解，因为%rip跳转到其他地方了。</p>
+<h2 id="makecontext"><a href="#makecontext" class="headerlink" title="makecontext"></a>makecontext</h2><blockquote>
+<p>void makecontext(ucontext_t *ucp, void (*func)(), int argc, …);</p>
+</blockquote>
+<p>老实讲makecontext名字取的不是很好，容易让人产生一种这个函数可以”生产”一个ucontext_t的错觉，其实这个函数的作用是修改一个用getcontext()获取的ucontext_t。它用指定的函数func指针和参数修改ucp,当这个ucp被setcontext（或者swapcontext，后文再提）之后，执行流跳转到新的函数func所在的代码段开始向下执行。</p>
+<p>man page上关于makecontext(3)有一个使用的example，示范了makecontext的用法：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span></span><br><span class="line"><span class="title function_">main</span><span class="params">(<span class="type">int</span> argc, <span class="type">char</span> *argv[])</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="type">char</span> func1_stack[<span class="number">16384</span>];</span><br><span class="line">    <span class="type">char</span> func2_stack[<span class="number">16384</span>];</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (getcontext(&amp;uctx_func1) == <span class="number">-1</span>)</span><br><span class="line">        handle_error(<span class="string">&quot;getcontext&quot;</span>);</span><br><span class="line">    uctx_func1.uc_stack.ss_sp = func1_stack;</span><br><span class="line">    uctx_func1.uc_stack.ss_size = <span class="keyword">sizeof</span>(func1_stack);</span><br><span class="line">    uctx_func1.uc_link = &amp;uctx_main;</span><br><span class="line">    makecontext(&amp;uctx_func1, func1, <span class="number">0</span>);</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>在调用getcontext()之后，makecontext()之前，还需对获取到的ucp的两个字段额外的赋值。</p>
+<p>ucp-&gt;uc_stack是即将运行的func使用的堆栈。如果修改了%rip的值，而不给它一个额外的堆栈，直接影响了堆栈的平衡，程序很容易就挂掉了。例子里func1_stack是在main的堆栈里边分配的，我们也可以使用堆上的内存，但是要主要内存的释放。</p>
+<p>此外ucontext_t.uc_link也被初始化了，这个字段存在的意义是，当前的ucontext运行结束后，会把uc_link当做是后继的用户上下文，会被自动载入并继续执行，如果是设置为NULL的话，当前的ucontext执行完，调用线程就会直接退出了。</p>
+<p>这里我也找到了makecontext()的源码，不同于getcontext()函数，它是C语言写的：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> __makecontext(<span class="type">ucontext_t</span> *ucp, <span class="type">void</span> (*func)(<span class="type">void</span>), <span class="type">int</span> argc, ...)</span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">extern</span> <span class="type">void</span> __start_context(<span class="type">void</span>) attribute_hidden;</span><br><span class="line">    <span class="keyword">extern</span> <span class="type">void</span> __push___start_context(<span class="type">ucontext_t</span> *)</span><br><span class="line">        attribute_hidden;</span><br><span class="line">    <span class="type">greg_t</span> *sp;</span><br><span class="line">    <span class="type">unsigned</span> <span class="type">int</span> idx_uc_link;</span><br><span class="line">    va_list ap;</span><br><span class="line">    <span class="type">int</span> i;</span><br><span class="line">    <span class="comment">/* Generate room on stack for parameter if needed and uc_link.  */</span></span><br><span class="line">    sp = (<span class="type">greg_t</span> *)((<span class="type">uintptr_t</span>)ucp-&gt;uc_stack.ss_sp + ucp-&gt;uc_stack.ss_size);</span><br><span class="line">    sp -= (argc &gt; <span class="number">6</span> ? argc - <span class="number">6</span> : <span class="number">0</span>) + <span class="number">1</span>;</span><br><span class="line">    <span class="comment">/* Align stack and make space for trampoline address.  */</span></span><br><span class="line">    sp = (<span class="type">greg_t</span> *)((((<span class="type">uintptr_t</span>)sp) &amp; <span class="number">-16L</span>) - <span class="number">8</span>);</span><br><span class="line">    idx_uc_link = (argc &gt; <span class="number">6</span> ? argc - <span class="number">6</span> : <span class="number">0</span>) + <span class="number">1</span>;</span><br><span class="line">    <span class="comment">/* Setup context ucp.  */</span></span><br><span class="line">    <span class="comment">/* Address to jump to.  */</span></span><br><span class="line">    ucp-&gt;uc_mcontext.gregs[REG_RIP] = (<span class="type">uintptr_t</span>)func;</span><br><span class="line">    <span class="comment">/* Setup rbx.*/</span></span><br><span class="line">    ucp-&gt;uc_mcontext.gregs[REG_RBX] = (<span class="type">uintptr_t</span>)&amp;sp[idx_uc_link];</span><br><span class="line">    ucp-&gt;uc_mcontext.gregs[REG_RSP] = (<span class="type">uintptr_t</span>)sp;</span><br><span class="line"></span><br><span class="line">    sp[<span class="number">0</span>] = (<span class="type">uintptr_t</span>) &amp;__start_context;</span><br><span class="line">    sp[idx_uc_link] = (<span class="type">uintptr_t</span>) ucp-&gt;uc_link;</span><br><span class="line"></span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>暂时先不考虑其余代码，看 <code>ucp-&gt;uc_mcontext.gregs[REG_RIP] = (uintptr_t)func;</code>这行,__makecontext直接将func指针保存到了ucp-&gt;uc_mcontext.gregs[REG_RIP]实现跳转。</p>
+<p>由于栈的增长方向是从高地址到低地址的，ucp-&gt;uc_link申请的内存是从低地址开始的，因此需要计算一下这块内存的高地址值：</p>
+<blockquote>
+<p>sp &#x3D; (greg_t *)((uintptr_t)ucp-&gt;uc_stack.ss_sp + ucp-&gt;uc_stack.ss_size);</p>
+</blockquote>
+<p>如果函数的参数超过6个的话，还要额外的预留出额外参数(通过栈传递)的内存，其中这个”+1”视为uc_link留的，ucp-&gt;uc_link会保存在栈中：</p>
+<blockquote>
+<p>sp -&#x3D; (argc &gt; 6 ? argc - 6 : 0) + 1;</p>
+</blockquote>
+<p>这还没完，还以16L的长度，对齐堆栈，然后预留8个字节的长度防止trampoline(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Trampoline_(computing)">https://en.wikipedia.org/wiki/Trampoline_(computing)</a> ):</p>
+<blockquote>
+<p>sp &#x3D; (greg_t *)((((uintptr_t)sp) &amp; -16L) - 8);</p>
+</blockquote>
+<p>最后再将sp的值放到uc_mcontext.gregs[REG_RSP]中。</p>
+<p>再来看makecontext余下的代码：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> __makecontext(<span class="type">ucontext_t</span> *ucp, <span class="type">void</span> (*func)(<span class="type">void</span>), <span class="type">int</span> argc, ...)</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    va_start(ap, argc);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; argc; ++i)</span><br><span class="line">        <span class="keyword">switch</span> (i)</span><br><span class="line">        &#123;</span><br><span class="line">        <span class="keyword">case</span> <span class="number">0</span>:</span><br><span class="line">            ucp-&gt;uc_mcontext.gregs[REG_RDI] = va_arg(ap, <span class="type">greg_t</span>);</span><br><span class="line">            <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">case</span> <span class="number">1</span>:</span><br><span class="line">            ucp-&gt;uc_mcontext.gregs[REG_RSI] = va_arg(ap, <span class="type">greg_t</span>);</span><br><span class="line">            <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">case</span> <span class="number">2</span>:</span><br><span class="line">            ucp-&gt;uc_mcontext.gregs[REG_RDX] = va_arg(ap, <span class="type">greg_t</span>);</span><br><span class="line">            <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">case</span> <span class="number">3</span>:</span><br><span class="line">            ucp-&gt;uc_mcontext.gregs[REG_RCX] = va_arg(ap, <span class="type">greg_t</span>);</span><br><span class="line">            <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">case</span> <span class="number">4</span>:</span><br><span class="line">            ucp-&gt;uc_mcontext.gregs[REG_R8] = va_arg(ap, <span class="type">greg_t</span>);</span><br><span class="line">            <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">case</span> <span class="number">5</span>:</span><br><span class="line">            ucp-&gt;uc_mcontext.gregs[REG_R9] = va_arg(ap, <span class="type">greg_t</span>);</span><br><span class="line">            <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">default</span>:</span><br><span class="line">            <span class="comment">/* Put value on stack.  */</span></span><br><span class="line">            sp[i - <span class="number">5</span>] = va_arg(ap, <span class="type">greg_t</span>);</span><br><span class="line">            <span class="keyword">break</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    va_end(ap);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这一段虽然长，但是只做了一件事儿，把前六个参数传入对应寄存器，如果还有余下的参数，压入堆栈中。</p>
+<p>于是makecontext之后，ucp将会被修改成：</p>
+<p><img src="https://baixiangcpp.oss-cn-shanghai.aliyuncs.com/blog/coroutine/makecontext.png" alt="makecontext"></p>
+<p>于是func会在uc_stack中执行，而不会对调用线程的函数栈产生影响。栈底的uc_link相当于rip的作用，当前的func执行完之后，会自动载入uc_link指向的ucontext_t，如此反复。</p>
+<h2 id="swapcontext"><a href="#swapcontext" class="headerlink" title="swapcontext"></a>swapcontext</h2><blockquote>
+<p>int swapcontext(ucontext_t *oucp, const ucontext_t *ucp);</p>
+</blockquote>
+<p>可以理解为是这样的步骤：1. getcontext(oucp) 2.setcontext(ucp)。从语义上讲swapcontext()和coctx_swap()一样，仅仅是保存上下文的数据结构不一样罢了。将当前的用户上下文保存至oucp中，并激活ucp指向的用户上下文。其实现也和coctx_swap()差不多，具体参考其源码:<a target="_blank" rel="noopener" href="https://code.woboq.org/userspace/glibc/sysdeps/unix/sysv/linux/x86_64/swapcontext.S.html">https://code.woboq.org/userspace/glibc/sysdeps/unix/sysv/linux/x86_64&#x2F;swapcontext.S.html</a>，这里也不多赘述了。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文分别以coroutine和libco两个协程库为例，剖析了主流的两种在用户态切换上下文的技术实现。ucontext方案是系统提供的接口，兼容性会更好。直接通过汇编实现的方式速度更快，但是稍不注意就有可能违反了调用约定，产生潜在的<a target="_blank" rel="noopener" href="https://github.com/Tencent/libco/issues/90">bug</a>。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/linux/" rel="tag"># linux</a>
+              <a href="/tags/%E5%8D%8F%E7%A8%8B/" rel="tag"># 协程</a>
+              <a href="/tags/%E7%BA%BF%E7%A8%8B/" rel="tag"># 线程</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2018/11/15/threadpool/" rel="prev" title="一个基于现代C++简单线程池的实现">
+      <i class="fa fa-chevron-left"></i> 一个基于现代C++简单线程池的实现
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2019/01/16/timer/" rel="next" title="Linux下定时器的设计与实现">
+      Linux下定时器的设计与实现 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="gitalk-container"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%8D%8F%E7%A8%8B%E8%83%BD%E5%B9%B2%E4%BB%80%E4%B9%88"><span class="nav-number">1.</span> <span class="nav-text">协程能干什么</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%B1%87%E7%BC%96%E5%AE%9E%E7%8E%B0%E4%B8%8A%E4%B8%8B%E6%96%87%E5%88%87%E6%8D%A2"><span class="nav-number">2.</span> <span class="nav-text">汇编实现上下文切换</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#ucontext%E7%B3%BB%E5%88%97%E5%87%BD%E6%95%B0"><span class="nav-number">3.</span> <span class="nav-text">ucontext系列函数</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#getcontext"><span class="nav-number">3.1.</span> <span class="nav-text">getcontext</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#setcontext"><span class="nav-number">3.2.</span> <span class="nav-text">setcontext</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#makecontext"><span class="nav-number">3.3.</span> <span class="nav-text">makecontext</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#swapcontext"><span class="nav-number">3.4.</span> <span class="nav-text">swapcontext</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">4.</span> <span class="nav-text">总结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Baixiangcpp</p>
+  <div class="site-description" itemprop="description">源码之前，了无秘密。</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">27</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Baixiangcpp</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+<link rel="stylesheet" href="http://oss.ilovecpp.com/blog-css/gitalk.min.css">
+
+<script>
+NexT.utils.loadComments(document.querySelector('#gitalk-container'), () => {
+  NexT.utils.getScript('http://oss.ilovecpp.com/blog-css/gitalk.min.js', () => {
+    var gitalk = new Gitalk({
+      clientID    : 'ddb4a065ef5dbedb224e',
+      clientSecret: '0ede77323508d56231b1281291538bfd45303b20',
+      repo        : 'hexo',
+      owner       : 'baixiangcpp',
+      admin       : ['baixiangcpp'],
+      id          : 'dbf4aaef0f149eb7612afd56442ef077',
+        language: 'zh-CN',
+      distractionFreeMode: true
+    });
+    gitalk.render('gitalk-container');
+  }, window.Gitalk);
+});
+</script>
+
+</body>
+</html>
